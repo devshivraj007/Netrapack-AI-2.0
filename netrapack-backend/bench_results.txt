@@ -1,0 +1,23 @@
+[01] cat=general/food_and_beverage X  recall={'mrp': 'found', 'net_quantity': 'found', 'fssai': 'found', 'country_of_origin': 'found'}  src=vision_ai  model=qwen2.5vl:3b  16995ms  extracted={"mrp": 85.1, "net_quantity": "150g", "unit_sale_price": null, "mfd_pkd_date": "02/08/2026", "expiry_date": "28/01/2027", "fssai_license_number": "1101001200022", "manufacturer_details": "CHHEDA SPECIALTIES FOODS PVT. LTD., Survey No. 115, Village Ambhai, Manor-Wada Road, Dist. Palghar - 421 303, Maharashtra, INDIA", "country_of_origin": "India", "ai_source": "local_ollama", "model_name": "qwen2.5vl:3b"}
+[02] cat=general/food_and_beverage X  recall={'net_quantity': 'found', 'fssai': 'found'}  src=vision_ai  model=qwen2.5vl:3b  11598ms  extracted={"mrp": null, "net_quantity": "500 g", "unit_sale_price": null, "mfd_pkd_date": null, "expiry_date": null, "fssai_license_number": "10012021000071", "manufacturer_details": "Kaira District Co-operative Milk Producers Union Ltd., Anand - 388 001 India. At Food Complex Mogar, Mogar - 388340.", "country_of_origin": "India", "ai_source": "local_ollama", "model_name": "qwen2.5vl:3b"}
+[03] cat=general/food_and_beverage X  recall={'country_of_origin': 'MISSED'}  src=ocr  model=None  11631ms  extracted={}
+[04] cat=general/food_and_beverage X  recall={'mrp': 'MISSED', 'net_quantity': 'MISSED', 'fssai': 'MISSED'}  src=ocr  model=None  10992ms  extracted={}
+[05] cat=general/food_and_beverage X  recall={'net_quantity': 'MISSED'}  src=ocr  model=None  10884ms  extracted={}
+[06] cat=general/food_and_beverage X  recall={'mrp': 'MISSED', 'fssai': 'MISSED'}  src=ocr  model=None  10474ms  extracted={}
+[07] cat=general/food_and_beverage X  recall={}  src=ocr  model=None  10932ms  extracted={}
+[08] cat=general/food_and_beverage X  recall={'mrp': 'MISSED', 'net_quantity': 'MISSED', 'fssai': 'MISSED', 'country_of_origin': 'MISSED'}  src=ocr  model=None  11149ms  extracted={}
+[09] cat=general/food_and_beverage X  recall={'mrp': 'MISSED', 'net_quantity': 'MISSED', 'fssai': 'MISSED', 'country_of_origin': 'MISSED'}  src=ocr  model=None  11888ms  extracted={}
+[10] cat=general/food_and_beverage X  recall={'mrp': 'MISSED', 'net_quantity': 'MISSED', 'fssai': 'MISSED', 'country_of_origin': 'MISSED'}  src=ocr  model=None  11318ms  extracted={}
+[11] cat=general/food_and_beverage X  recall={'net_quantity': 'MISSED'}  src=ocr  model=None  10497ms  extracted={}
+[12] cat=general/food_and_beverage X  recall={'net_quantity': 'MISSED', 'fssai': 'MISSED'}  src=ocr  model=None  10463ms  extracted={}
+[13] cat=general/food_and_beverage X  recall={'mrp': 'MISSED', 'net_quantity': 'MISSED', 'fssai': 'MISSED', 'country_of_origin': 'MISSED'}  src=ocr  model=None  10432ms  extracted={}
+[14] cat=general/food_and_beverage X  recall={'net_quantity': 'MISSED'}  src=ocr  model=None  10394ms  extracted={}
+[15] cat=general/food_and_beverage X  recall={'mrp': 'MISSED', 'net_quantity': 'MISSED', 'fssai': 'MISSED'}  src=ocr  model=None  10092ms  extracted={}
+[16] cat=general/electronics X  recall={'net_quantity': 'MISSED', 'country_of_origin': 'MISSED'}  src=ocr  model=None  10285ms  extracted={}
+[17] cat=general/personal_care X  recall={'net_quantity': 'MISSED'}  src=ocr  model=None  10162ms  extracted={}
+[18] cat=general/food_and_beverage X  recall={'net_quantity': 'MISSED', 'fssai': 'MISSED'}  src=ocr  model=None  10196ms  extracted={}
+[19] cat=general/personal_care X  recall={'mrp': 'MISSED', 'net_quantity': 'MISSED'}  src=ocr  model=None  10728ms  extracted={}
+[20] cat=general/electronics X  recall={'mrp': 'MISSED', 'net_quantity': 'MISSED', 'country_of_origin': 'MISSED'}  src=ocr  model=None  9781ms  extracted={}
+[21] cat=general/food_and_beverage X  recall={'mrp': 'MISSED', 'fssai': 'MISSED'}  src=ocr  model=None  10253ms  extracted={}
+
+SUMMARY {"products": 21, "category_accuracy": "0/21 (0%)", "field_recall": "6/48 (12%)", "avg_processing_ms": 11007, "max_processing_ms": 16995}

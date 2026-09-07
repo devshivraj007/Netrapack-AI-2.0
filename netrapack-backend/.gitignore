@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+.pytest_cache/
+.DS_Store
+
+# Local SQLite database (evidence data - never commit)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Day 2 verification artifacts / temp logs
+*.log
+tests/photos/*.jpg
+tests/photos/*.jpeg
+tests/photos/*.png
+!tests/photos/.gitkeep
+
+# Evidence storage (raw scan images + generated notices) - never commit
+storage/

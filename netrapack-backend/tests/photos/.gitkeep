@@ -1,0 +1,3 @@
+# Drop real photographed test product images here (jpg/jpeg/png).
+# The Day 2 test harness (tests/run_photo_pipeline.py) will pick them up
+# automatically. Image files in this folder are gitignored.
