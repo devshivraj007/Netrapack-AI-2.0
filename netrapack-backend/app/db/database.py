@@ -49,6 +49,18 @@ def get_connection() -> sqlite3.Connection:
 
 
 SCHEMA_SQL = """
+-- Application users for role-based access (Officer / Admin).
+-- Passwords are stored as PBKDF2-HMAC-SHA256 hashes (salt$iterations$hash),
+-- never in plaintext. This table is mutable (users can be added/updated).
+CREATE TABLE IF NOT EXISTS users (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    username            TEXT UNIQUE NOT NULL,
+    password_hash       TEXT NOT NULL,
+    role                TEXT NOT NULL,             -- 'officer' | 'admin'
+    display_name        TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Reference products (for barcode matching later, Day 3).
 CREATE TABLE IF NOT EXISTS products (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,

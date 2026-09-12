@@ -10,6 +10,7 @@ Deliberately narrow surface:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from typing import Any, Optional
 
@@ -226,11 +227,19 @@ def is_category_confirmed(scan_id: str) -> bool:
 def query_reports(status: Optional[str] = None,
                   date_from: Optional[str] = None,
                   date_to: Optional[str] = None,
+                  scan_id: Optional[str] = None,
+                  product_name: Optional[str] = None,
                   limit: int = 200) -> list[dict[str, Any]]:
-    """Query scans for the admin dashboard, with optional status/date filters.
+    """Search/filter scans for the admin dashboard.
 
-    status filters on the scan's overall_status. Dates are ISO (YYYY-MM-DD) and
-    filter on created_at. Returns scan summary rows (newest first).
+    Filters (all optional, combined with AND):
+      * status        - exact overall_status.
+      * date_from/to  - ISO date (YYYY-MM-DD) range on created_at.
+      * scan_id       - partial (LIKE) match on scan_id.
+      * product_name  - partial (LIKE) match against the verdict JSON
+                        (manufacturer / extracted text) - the pragmatic way to
+                        search by product since scans store a full verdict blob.
+    Returns scan summary rows (newest first).
     """
     clauses = []
     params: list[Any] = []
@@ -243,6 +252,14 @@ def query_reports(status: Optional[str] = None,
     if date_to:
         clauses.append("date(created_at) <= date(?)")
         params.append(date_to)
+    if scan_id:
+        clauses.append("scan_id LIKE ?")
+        params.append(f"%{scan_id}%")
+    if product_name:
+        # verdict_json holds the vision_extraction (manufacturer_details, etc.);
+        # a LIKE over it is a simple, effective product/name search.
+        clauses.append("verdict_json LIKE ?")
+        params.append(f"%{product_name}%")
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
 
     conn = get_connection()
@@ -343,3 +360,63 @@ def get_status_history(report_id: str) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Users / authentication
+# ---------------------------------------------------------------------------
+def get_user(username: str) -> Optional[dict[str, Any]]:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username.strip().lower(),)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def create_user(username: str, password_hash: str, role: str,
+                display_name: Optional[str] = None) -> None:
+    """Insert or update a user (idempotent on username)."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO users (username, password_hash, role, display_name)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(username) DO UPDATE SET
+                password_hash=excluded.password_hash,
+                role=excluded.role,
+                display_name=excluded.display_name
+            """,
+            (username.strip().lower(), password_hash, role, display_name),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def user_count() -> int:
+    conn = get_connection()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def seed_default_users() -> None:
+    """Seed default Officer + Admin accounts if the users table is empty.
+
+    Default credentials (demo): officer/netra123, admin/admin123.
+    Override via env AUTH_OFFICER_PASSWORD / AUTH_ADMIN_PASSWORD.
+    Passwords are stored hashed (PBKDF2), never plaintext.
+    """
+    from app.auth.security import hash_password
+
+    if user_count() > 0:
+        return
+    officer_pw = os.environ.get("AUTH_OFFICER_PASSWORD", "netra123")
+    admin_pw = os.environ.get("AUTH_ADMIN_PASSWORD", "admin123")
+    create_user("officer", hash_password(officer_pw), "officer", "Field Officer")
+    create_user("admin", hash_password(admin_pw), "admin", "Administrator")

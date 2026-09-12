@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.auth.deps import require_admin, require_officer
 from app.db import repository
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -25,23 +26,51 @@ _ALLOWED_TRANSITIONS = {
 _VALID_STATES = set(_ALLOWED_TRANSITIONS) | {"RESOLVED"}
 
 
-@router.get("/reports", summary="List scan reports with status/date filters")
+@router.get("/reports",
+            summary="Search/filter scan reports (product, id, date, status)")
 def list_reports(
     status: Optional[str] = Query(
         None, description="Filter by overall_status: fully_compliant | "
                           "non_compliant | needs_manual_review."),
     date_from: Optional[str] = Query(None, description="ISO date YYYY-MM-DD (inclusive)."),
     date_to: Optional[str] = Query(None, description="ISO date YYYY-MM-DD (inclusive)."),
+    scan_id: Optional[str] = Query(None, description="Partial match on scan ID."),
+    product_name: Optional[str] = Query(
+        None, description="Partial match on product/manufacturer text."),
+    q: Optional[str] = Query(
+        None, description="General search term (matches product name OR scan id)."),
     limit: int = Query(200, ge=1, le=1000),
+    _user: dict = Depends(require_officer),
 ) -> dict:
-    rows = repository.query_reports(status=status, date_from=date_from,
-                                   date_to=date_to, limit=limit)
+    # A single 'q' box maps to both product name and scan id (either match).
+    if q and not (scan_id or product_name):
+        rows_by_name = repository.query_reports(
+            status=status, date_from=date_from, date_to=date_to,
+            product_name=q, limit=limit)
+        rows_by_id = repository.query_reports(
+            status=status, date_from=date_from, date_to=date_to,
+            scan_id=q, limit=limit)
+        seen = set()
+        rows = []
+        for r in [*rows_by_name, *rows_by_id]:
+            key = (r["scan_id"], r["created_at"])
+            if key not in seen:
+                seen.add(key)
+                rows.append(r)
+    else:
+        rows = repository.query_reports(
+            status=status, date_from=date_from, date_to=date_to,
+            scan_id=scan_id, product_name=product_name, limit=limit)
+
     # Attach current investigation status to each row.
     for r in rows:
         r["investigation_status"] = repository.get_current_status(r["scan_id"])
     return {
         "count": len(rows),
-        "filters": {"status": status, "date_from": date_from, "date_to": date_to},
+        "filters": {
+            "status": status, "date_from": date_from, "date_to": date_to,
+            "scan_id": scan_id, "product_name": product_name, "q": q,
+        },
         "reports": rows,
     }
 
@@ -54,7 +83,8 @@ class StatusUpdateRequest(BaseModel):
 
 @router.post("/reports/{report_id}/status",
              summary="Update an investigation's status (state machine)")
-def update_report_status(report_id: str, req: StatusUpdateRequest) -> dict:
+def update_report_status(report_id: str, req: StatusUpdateRequest,
+                         _user: dict = Depends(require_admin)) -> dict:
     new_status = req.new_status.strip().upper()
     if new_status not in _VALID_STATES:
         raise HTTPException(

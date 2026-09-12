@@ -1,0 +1,11 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+.DS_Store
+
+# Local build/verification temp artifacts (do not commit)
+tsc_out.txt
+tsc_check.txt
+*_done.txt

@@ -26,6 +26,14 @@ def client():
         yield c
 
 
+def _auth(client, username, password):
+    """Log in and return an Authorization header dict for the given user."""
+    r = client.post("/api/v1/auth/login",
+                    json={"username": username, "password": password})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
 def _make_noncompliant(client, scan_id):
     return client.post("/api/v1/scan/process", json={
         "scan_id": scan_id,
@@ -46,20 +54,22 @@ def test_officer_gate_and_pdf(client):
     # fixed id would collide with data from a previous run.
     sid = f"pt-officer-{uuid.uuid4().hex[:8]}"
     assert _make_noncompliant(client, sid).status_code == 200
+    hdr = _auth(client, "officer", "netra123")
 
-    # 403 before confirmation.
+    # 403 before confirmation (authenticated, but not yet inspector-confirmed).
     notice = {"scan_id": sid, "shop_name": "Testmart", "inspector_id": "INSP-1",
               "gps_coordinates": "19.07,72.87", "product_barcode": "8901499010728"}
-    assert client.post("/api/v1/officer/generate-notice", json=notice).status_code == 403
+    assert client.post("/api/v1/officer/generate-notice", json=notice,
+                       headers=hdr).status_code == 403
 
     # Confirm category.
     r = client.post("/api/v1/officer/confirm-category", json={
         "scan_id": sid, "confirmed_category": "food_and_beverage",
-        "inspector_id": "INSP-1"})
+        "inspector_id": "INSP-1"}, headers=hdr)
     assert r.status_code == 200 and r.json()["status"] == "inspector_confirmed"
 
     # 200 + PDF saved.
-    r = client.post("/api/v1/officer/generate-notice", json=notice)
+    r = client.post("/api/v1/officer/generate-notice", json=notice, headers=hdr)
     assert r.status_code == 200
     body = r.json()
     assert os.path.exists(body["file_path"])
@@ -70,30 +80,33 @@ def test_officer_gate_and_pdf(client):
 def test_admin_state_machine(client):
     sid = f"pt-status-{uuid.uuid4().hex[:8]}"
     _make_noncompliant(client, sid)
+    hdr = _auth(client, "admin", "admin123")
 
     r = client.post(f"/api/v1/admin/reports/{sid}/status",
-                    json={"new_status": "NOTICE_ISSUED"})
+                    json={"new_status": "NOTICE_ISSUED"}, headers=hdr)
     assert r.status_code == 200 and r.json()["old_status"] == "PENDING"
 
     # Illegal backward transition.
     r = client.post(f"/api/v1/admin/reports/{sid}/status",
-                    json={"new_status": "PENDING"})
+                    json={"new_status": "PENDING"}, headers=hdr)
     assert r.status_code == 409
 
     r = client.post(f"/api/v1/admin/reports/{sid}/status",
-                    json={"new_status": "RESOLVED"})
+                    json={"new_status": "RESOLVED"}, headers=hdr)
     assert r.status_code == 200
 
     # Terminal.
     r = client.post(f"/api/v1/admin/reports/{sid}/status",
-                    json={"new_status": "NOTICE_ISSUED"})
+                    json={"new_status": "NOTICE_ISSUED"}, headers=hdr)
     assert r.status_code == 409
 
     assert len(repository.get_status_history(sid)) == 2
 
 
 def test_admin_reports_filter(client):
-    r = client.get("/api/v1/admin/reports", params={"status": "non_compliant"})
+    hdr = _auth(client, "officer", "netra123")
+    r = client.get("/api/v1/admin/reports", params={"status": "non_compliant"},
+                   headers=hdr)
     assert r.status_code == 200
     assert r.json()["count"] >= 1
 

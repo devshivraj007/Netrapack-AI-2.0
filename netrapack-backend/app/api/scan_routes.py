@@ -49,6 +49,44 @@ async def process_photo(
     return scan_service.process_photo_scan_multi(scan_id, images, barcode)
 
 
+@router.post("/readability-check",
+             summary="Approximate font-size/readability check (LMPC Rule 9, advisory)")
+async def readability_check(image: UploadFile = File(...)) -> dict:
+    """Advisory-only estimate of whether declaration text is large enough.
+
+    HONEST LIMITATION: a photo has no physical scale, so this returns a
+    PROPORTIONAL approximation (text height vs frame), not a certified mm
+    measurement. Flags 'possibly too small' for manual verification.
+    """
+    import cv2
+    import numpy as np
+
+    from app.ocr.image_prep import prepare_image
+    from app.ocr.reader import read_words, tesseract_available
+    from app.ocr.readability import assess_readability
+
+    if not tesseract_available():
+        return {"assessed": False,
+                "note": "OCR (Tesseract) not available; cannot assess readability."}
+    data = await image.read()
+    arr = np.frombuffer(data, dtype=np.uint8)
+    bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if bgr is None:
+        return {"assessed": False, "note": "Could not decode image."}
+    prepared = prepare_image(bgr)
+    ocr = read_words(prepared.image)
+    result = assess_readability(ocr.words, prepared.image.shape[0])
+    return {
+        "assessed": result.assessed,
+        "approximate": result.approximate,
+        "median_char_px": result.median_char_px,
+        "image_height_px": result.image_height_px,
+        "char_height_fraction": result.char_height_fraction,
+        "likely_too_small": result.likely_too_small,
+        "note": result.note,
+    }
+
+
 class UrlScanRequest(BaseModel):
     url: str = Field(..., description="Product page URL (Blinkit, Amazon India, etc.).")
 

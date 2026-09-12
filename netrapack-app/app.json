@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "NetraPack",
+    "slug": "netrapack-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "netrapack",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0B2F6B"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "NetraPack needs camera access to scan product labels for Legal Metrology compliance."
+      }
+    },
+    "android": {
+      "permissions": [
+        "CAMERA"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "NetraPack needs camera access to scan product labels."
+        }
+      ],
+      "expo-asset",
+      "expo-font"
+    ],
+    "extra": {
+      "apiBaseUrl": "http://192.168.1.5:8000/api/v1"
+    }
+  }
+}

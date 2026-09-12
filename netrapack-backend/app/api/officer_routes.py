@@ -16,8 +16,10 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi import Depends
 from pydantic import BaseModel, Field
 
+from app.auth.deps import require_officer
 from app.db import repository
 from app.services import notice_pdf
 
@@ -40,7 +42,8 @@ class ConfirmCategoryResponse(BaseModel):
 
 @router.post("/confirm-category", response_model=ConfirmCategoryResponse,
              summary="Officer confirms/changes the AI-suggested category")
-def confirm_category(req: ConfirmCategoryRequest) -> ConfirmCategoryResponse:
+def confirm_category(req: ConfirmCategoryRequest,
+                     _user: dict = Depends(require_officer)) -> ConfirmCategoryResponse:
     scan = repository.get_latest_scan(req.scan_id)
     if not scan:
         raise HTTPException(status_code=404,
@@ -66,7 +69,8 @@ class GenerateNoticeRequest(BaseModel):
 
 
 @router.post("/generate-notice", summary="Generate the Section 36 notice PDF")
-def generate_notice(req: GenerateNoticeRequest) -> dict:
+def generate_notice(req: GenerateNoticeRequest,
+                    _user: dict = Depends(require_officer)) -> dict:
     scan = repository.get_latest_scan(req.scan_id)
     if not scan:
         raise HTTPException(status_code=404,
