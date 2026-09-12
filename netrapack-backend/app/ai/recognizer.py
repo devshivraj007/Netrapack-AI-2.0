@@ -1,9 +1,14 @@
 """Product recognition with the 3-level fallback chain.
 
-Order (per approved architecture):
-    Level 1: local AI (Ollama vision) - instant, offline
-    Level 2: Gemini cloud             - needs internet + key
-    Level 3: neither                  - category = general, standard checks only
+Order (Gemini-primary, per reliability decision on Day 6):
+    Level 1: Gemini cloud (gemini-3.6-flash) - primary; most reliable extractor
+    Level 2: local AI (Ollama qwen2.5vl:3b)  - fallback when cloud unavailable
+    Level 3: neither                         - category = general / OCR fallback
+
+Rationale: the 21-product benchmark showed the local 3B model degrading to OCR
+on most real labels, while Gemini extracts cleanly. So Gemini leads and local
+qwen is the offline safety net. Ollama still guarantees the app works with no
+internet.
 
 The confidence gate (< 70% -> general) applies to BOTH AI levels. Whatever the
 source, the result is always labelled "AI-suggested, not yet confirmed" and an
@@ -45,11 +50,11 @@ class ProductRecognizer:
         self.gemini = gemini or GeminiVisionProvider()
 
     def recognize(self, image_bytes: bytes) -> RecognitionResult:
-        # Level 1: local Ollama.
-        result = self._try_provider(self.ollama, image_bytes)
-        # Level 2: Gemini cloud.
+        # Level 1: Gemini cloud (primary).
+        result = self._try_provider(self.gemini, image_bytes)
+        # Level 2: local Ollama (fallback when cloud is unavailable/fails).
         if result is None:
-            result = self._try_provider(self.gemini, image_bytes)
+            result = self._try_provider(self.ollama, image_bytes)
         # Level 3: no AI available -> general, standard checks only.
         if result is None:
             return RecognitionResult(
@@ -59,7 +64,7 @@ class ProductRecognizer:
                 confidence=0.0,
                 below_confidence_threshold=False,
                 note=(
-                    "No AI available (local and cloud both unavailable). "
+                    "No AI available (cloud and local both unavailable). "
                     "Falling back to standard Legal Metrology checks only; "
                     "category-specific (FSSAI) checks are skipped."
                 ),
@@ -81,10 +86,11 @@ class ProductRecognizer:
     def extract_fields(self, images: list[bytes]) -> Optional[VisionExtraction]:
         """Vision structured extraction with the same 3-level fallback.
 
-        Returns None only if BOTH local and cloud vision are unavailable/failed
-        (Level 3), in which case the caller falls back to OCR.
+        Gemini (cloud) is tried FIRST as the reliable primary extractor; local
+        qwen is the offline fallback. Returns None only if BOTH cloud and local
+        vision are unavailable/failed, in which case the caller falls back to OCR.
         """
-        for provider in (self.ollama, self.gemini):
+        for provider in (self.gemini, self.ollama):
             try:
                 available, _ = provider.is_available()
                 if not available:

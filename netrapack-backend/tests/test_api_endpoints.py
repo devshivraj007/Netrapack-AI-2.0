@@ -7,6 +7,7 @@ suite is deterministic and does not require live models or network.
 from __future__ import annotations
 
 import os
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -41,7 +42,9 @@ def _make_noncompliant(client, scan_id):
 
 # --- Officer gate + Section 36 PDF ----------------------------------------
 def test_officer_gate_and_pdf(client):
-    sid = "pt-officer-1"
+    # Unique id per run: scans/confirmations are append-only, so reusing a
+    # fixed id would collide with data from a previous run.
+    sid = f"pt-officer-{uuid.uuid4().hex[:8]}"
     assert _make_noncompliant(client, sid).status_code == 200
 
     # 403 before confirmation.
@@ -65,7 +68,7 @@ def test_officer_gate_and_pdf(client):
 
 # --- Admin state machine ---------------------------------------------------
 def test_admin_state_machine(client):
-    sid = "pt-status-1"
+    sid = f"pt-status-{uuid.uuid4().hex[:8]}"
     _make_noncompliant(client, sid)
 
     r = client.post(f"/api/v1/admin/reports/{sid}/status",
@@ -153,7 +156,7 @@ def test_chain_of_custody_hash(tmp_path, monkeypatch):
 
     repository.reseed()
     _, jpeg, _ = build_samples()[0]
-    sid = "pt-custody-1"
+    sid = f"pt-custody-{uuid.uuid4().hex[:8]}"
     image_hash, image_path = _store_image(sid, jpeg)
     repository.insert_scan(
         {"scan_id": sid, "overall_status": "fully_compliant",

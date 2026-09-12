@@ -49,6 +49,10 @@ class VisionExtraction(BaseModel):
     """
 
     mrp: Optional[float] = None
+    # All distinct prices seen near the MRP (incl. struck-through), and whether
+    # base-vs-promotional could NOT be confidently distinguished.
+    mrp_all_prices: list[float] = Field(default_factory=list)
+    mrp_is_ambiguous: bool = False
     net_quantity: Optional[str] = None
     unit_sale_price: Optional[float] = None
     mfd_pkd_date: Optional[str] = None
@@ -66,9 +70,15 @@ class VisionExtraction(BaseModel):
 
         The rule engine parses strings (it extracts numbers/units itself), so we
         stringify numeric values and preserve the MRP with a currency hint.
+
+        MRP price handling (strikethrough/promotional):
+          * ambiguous (can't tell base vs promo) -> pass ALL detected prices so
+            the Day 1 MRP rule sees multiple values and routes to manual review.
+          * clear single/active price -> use the resolved (lower/active) mrp.
         """
+        mrp_decl = self._mrp_declaration()
         return {
-            "mrp_declaration": (f"MRP Rs. {self.mrp}" if self.mrp is not None else None),
+            "mrp_declaration": mrp_decl,
             "net_quantity_declaration": self.net_quantity,
             "unit_sale_price_declaration": (
                 f"Rs {self.unit_sale_price}" if self.unit_sale_price is not None else None
@@ -83,6 +93,34 @@ class VisionExtraction(BaseModel):
                 if self.fssai_license_number else None
             ),
         }
+
+    def _mrp_declaration(self) -> Optional[str]:
+        """Build the MRP declaration string for the rule engine.
+
+        - Ambiguous multi-price (no clear strikethrough): emit ALL prices so the
+          Day 1 MRP rule detects multiple candidates and routes to manual review
+          rather than guessing.
+        - Otherwise: prefer the model's resolved active mrp; if that's missing
+          but multiple prices were seen, fall back to the lowest (active/promo).
+        """
+        prices = [p for p in (self.mrp_all_prices or []) if p is not None]
+        distinct = sorted(set(prices))
+
+        # Ambiguous, or two+ indistinguishable prices with no resolved mrp:
+        # hand both to the rule engine (its MRP check flags multiple prices).
+        if self.mrp_is_ambiguous and len(distinct) >= 2:
+            joined = " ".join(f"Rs. {p:g}" for p in distinct)
+            return f"MRP {joined}"
+
+        if self.mrp is not None:
+            return f"MRP Rs. {self.mrp:g}"
+
+        # No resolved mrp but a clear strikethrough set -> lowest is active.
+        if len(distinct) >= 2 and not self.mrp_is_ambiguous:
+            return f"MRP Rs. {distinct[0]:g}"
+        if len(distinct) == 1:
+            return f"MRP Rs. {distinct[0]:g}"
+        return None
 
 
 # Below this confidence we treat the guess as "general" and run only the

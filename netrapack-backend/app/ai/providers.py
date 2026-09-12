@@ -23,6 +23,17 @@ from typing import Optional
 
 import httpx
 
+# Load .env at import so GEMINI_API_KEY is available no matter which entry point
+# constructs the providers (FastAPI server, benchmark, tests, scripts). Without
+# this, scripts that import the AI layer directly (not via main.py) would build
+# the Gemini provider with no key and silently fall back to local/OCR.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+
 from .types import (
     AiSource,
     PackageShape,
@@ -79,7 +90,9 @@ _EXTRACTION_PROMPT = (
     "Read the printed declarations and reply with STRICT JSON ONLY, no prose, "
     "matching exactly this schema and key names:\n"
     "{\n"
-    '  "mrp": number or null,               // Maximum Retail Price in INR, numeric only\n'
+    '  "mrp": number or null,               // the ACTIVE selling MRP in INR (see price rules)\n'
+    '  "mrp_all_prices": [numbers],         // EVERY distinct price seen near MRP, incl. struck-through\n'
+    '  "mrp_is_ambiguous": true/false,      // true if you CANNOT tell which price is the active one\n'
     '  "net_quantity": string or null,      // e.g. "150g", "300ml", "1 unit"\n'
     '  "unit_sale_price": number or null,   // per-unit price if printed, else null\n'
     '  "mfd_pkd_date": string or null,      // manufacture/packed date as printed\n'
@@ -88,9 +101,17 @@ _EXTRACTION_PROMPT = (
     '  "manufacturer_details": string or null, // name + address block as printed\n'
     '  "country_of_origin": string or null  // e.g. "India", "China", "Sri Lanka"\n'
     "}\n"
-    "Rules: Report ONLY what is actually printed. If a promotional/strikethrough "
-    "price is shown, use the final (lower) selling price for mrp. Do NOT guess a "
-    "value that is not visible - use null. Return numbers without currency symbols."
+    "PRICE RULES (important):\n"
+    "- List every distinct price you see near the MRP in mrp_all_prices.\n"
+    "- If ONE price is struck through / crossed out and another is not, the "
+    "NON-struck (usually LOWER) price is the active MRP: set mrp to it and set "
+    "mrp_is_ambiguous=false.\n"
+    "- If two or more prices are shown together and you CANNOT confidently tell "
+    "which is the active selling price (no clear strikethrough), set "
+    "mrp_is_ambiguous=true and leave mrp=null.\n"
+    "- If only one price is shown, set mrp to it and mrp_is_ambiguous=false.\n"
+    "General: Report ONLY what is actually printed. Do NOT guess a value that is "
+    "not visible - use null. Return numbers without currency symbols."
 )
 
 
@@ -436,8 +457,18 @@ def _to_str(value) -> Optional[str]:
 def _extraction_from_data(
     data: dict, source: AiSource, model_name: str
 ) -> VisionExtraction:
+    # Parse the price list (strikethrough handling).
+    raw_prices = data.get("mrp_all_prices") or []
+    all_prices: list[float] = []
+    if isinstance(raw_prices, list):
+        for p in raw_prices:
+            fp = _to_float(p)
+            if fp is not None:
+                all_prices.append(fp)
     return VisionExtraction(
         mrp=_to_float(data.get("mrp")),
+        mrp_all_prices=all_prices,
+        mrp_is_ambiguous=bool(data.get("mrp_is_ambiguous", False)),
         net_quantity=_to_str(data.get("net_quantity")),
         unit_sale_price=_to_float(data.get("unit_sale_price")),
         mfd_pkd_date=_to_str(data.get("mfd_pkd_date")),
