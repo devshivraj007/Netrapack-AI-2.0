@@ -162,6 +162,23 @@ class OcrInfo(BaseModel):
     manufacturer_block: Optional[str] = None
 
 
+class ReadabilityInfo(BaseModel):
+    """Advisory font-size / readability estimate (LMPC Rule 9 area).
+
+    HONEST SCOPE: this is a PROPORTIONAL approximation (text height vs frame),
+    not a certified mm measurement. `assessed` is False when there was not
+    enough data (e.g. OCR unavailable or too little text detected).
+    """
+
+    assessed: bool = False
+    approximate: bool = True
+    median_char_px: float = 0.0
+    image_height_px: int = 0
+    char_height_fraction: float = 0.0
+    likely_too_small: bool = False
+    note: str = ""
+
+
 class ScanVerdict(BaseModel):
     scan_id: str
     overall_status: OverallStatus
@@ -177,3 +194,7 @@ class ScanVerdict(BaseModel):
 
     # Day 3: the structured fields the vision AI read from the label (when used).
     vision_extraction: Optional[dict[str, Any]] = None
+
+    # Advisory font-size / readability estimate (LMPC Rule 9 area). Attached to
+    # photo scans automatically; None on text-only scans or when unassessable.
+    readability: Optional[ReadabilityInfo] = None

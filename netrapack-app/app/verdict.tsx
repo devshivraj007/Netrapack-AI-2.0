@@ -133,6 +133,48 @@ export default function Verdict() {
           <Field label="Manufacturer" value={ve.manufacturer_details} />
         </View>
 
+        {/* Readability / font-size advisory (LMPC Rule 9 area) */}
+        {verdict.readability ? (
+          <View
+            style={[
+              styles.readWrap,
+              verdict.readability.assessed && verdict.readability.likely_too_small
+                ? styles.readWarn
+                : styles.readInfo,
+            ]}
+          >
+            <Text style={styles.reportTitle}>FONT-SIZE / READABILITY (ADVISORY)</Text>
+            {verdict.readability.assessed ? (
+              <>
+                <Text
+                  style={[
+                    styles.readStatus,
+                    verdict.readability.likely_too_small
+                      ? { color: colors.amber }
+                      : { color: colors.green },
+                  ]}
+                >
+                  {verdict.readability.likely_too_small
+                    ? "⚠ Text may be below the minimum legible size — verify manually"
+                    : "✓ Declaration text appears adequately legible"}
+                </Text>
+                {verdict.readability.note ? (
+                  <Text style={styles.readNote}>{verdict.readability.note}</Text>
+                ) : null}
+              </>
+            ) : (
+              <Text style={styles.readNote}>
+                {verdict.readability.note ||
+                  "Readability could not be assessed for this scan."}
+              </Text>
+            )}
+            <Text style={styles.readDisclaimer}>
+              Proportional estimate only — not a certified mm measurement of LMPC
+              Rule 9 character height.
+            </Text>
+          </View>
+        ) : null}
+
         {/* AI category (suggested / confirmed) */}
         <View style={styles.catRow}>
           <Text style={styles.catLabel}>Product category</Text>
@@ -267,6 +309,24 @@ const styles = StyleSheet.create({
   fieldValue: { fontSize: font.h3, color: colors.text, fontWeight: "700", marginTop: 2 },
   fieldMissing: { color: colors.textMuted, fontStyle: "italic", fontWeight: "600" },
   ambiguous: { color: colors.amber, fontSize: font.small, fontWeight: "700", marginTop: spacing.xs },
+
+  readWrap: {
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+  },
+  readInfo: { borderColor: colors.border },
+  readWarn: { borderColor: colors.amber },
+  readStatus: { fontSize: font.body, fontWeight: "800", marginBottom: spacing.xs },
+  readNote: { fontSize: font.small, color: colors.text, lineHeight: 18 },
+  readDisclaimer: {
+    fontSize: font.small,
+    color: colors.textMuted,
+    fontStyle: "italic",
+    marginTop: spacing.xs,
+    lineHeight: 16,
+  },
 
   catRow: {
     flexDirection: "row",

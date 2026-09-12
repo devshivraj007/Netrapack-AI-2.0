@@ -156,3 +156,29 @@ def test_csv_export_unknown_scan_404(client):
     r = client.get("/api/v1/reports/does-not-exist/export",
                    headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 404
+
+
+# --- CP2-4: Readability check folded into the photo scan verdict ----------
+def test_photo_scan_always_includes_readability():
+    """The font-size/readability advisory must ride along on every photo scan
+    verdict so the app can surface it automatically (no separate call needed).
+
+    Deterministic: if OCR/Tesseract is unavailable the field is still present
+    with assessed=False, so we assert on shape, not on a specific measurement.
+    """
+    from tests.make_synthetic_labels import build_samples
+    from app.services import scan_service
+
+    _, jpeg, _ = build_samples()[0]
+    verdict = scan_service.process_photo_scan("cp2-readability", jpeg)
+    rd = verdict.readability
+    assert rd is not None, "photo scans must always attach a readability advisory"
+    # Always advisory, never a certified mm measurement.
+    assert rd.approximate is True
+    assert isinstance(rd.assessed, bool)
+    assert isinstance(rd.note, str) and rd.note  # human-readable note present
+    if rd.assessed:
+        # When we could assess, the proportional metrics are populated.
+        assert rd.image_height_px > 0
+        assert rd.char_height_fraction >= 0.0
+        assert isinstance(rd.likely_too_small, bool)

@@ -36,6 +36,7 @@ from app.schemas.scan import (
     AiRecognition,
     OcrInfo,
     OverallStatus,
+    ReadabilityInfo,
     ScanMetadata,
     ScanRequest,
     ScanVerdict,
@@ -100,6 +101,54 @@ def _to_ai_recognition(rec: RecognitionResult) -> AiRecognition:
         confirmation_status=rec.confirmation_status,
         note=rec.note,
     )
+
+
+def _assess_readability(image_bytes: bytes) -> ReadabilityInfo:
+    """Advisory font-size/readability estimate on the primary image.
+
+    Runs a lightweight OCR word-geometry pass to compare median text height
+    against the frame height. Degrades gracefully (assessed=False) when
+    Tesseract is unavailable, the image cannot be decoded, or too little text
+    is detected. Never raises into the scan path.
+    """
+    try:
+        import cv2
+        import numpy as np
+
+        from app.ocr.image_prep import prepare_image
+        from app.ocr.readability import assess_readability
+        from app.ocr.reader import read_words, tesseract_available
+
+        if not image_bytes:
+            return ReadabilityInfo(
+                assessed=False, note="No image supplied; readability not assessed.")
+        if not tesseract_available():
+            return ReadabilityInfo(
+                assessed=False,
+                note="OCR (Tesseract) not available; readability not assessed.")
+
+        arr = np.frombuffer(image_bytes, dtype=np.uint8)
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return ReadabilityInfo(
+                assessed=False, note="Could not decode image for readability.")
+
+        prepared = prepare_image(bgr)
+        ocr = read_words(prepared.image)
+        result = assess_readability(ocr.words, prepared.image.shape[0])
+        return ReadabilityInfo(
+            assessed=result.assessed,
+            approximate=result.approximate,
+            median_char_px=result.median_char_px,
+            image_height_px=result.image_height_px,
+            char_height_fraction=result.char_height_fraction,
+            likely_too_small=result.likely_too_small,
+            note=result.note,
+        )
+    except Exception:
+        # Readability is advisory; never break the scan response over it.
+        return ReadabilityInfo(
+            assessed=False, note="Readability check could not be completed.")
 
 
 def process_text_scan(req: ScanRequest) -> ScanVerdict:
@@ -183,7 +232,7 @@ def process_photo_scan_multi(scan_id: str, images: list[bytes],
             return _finish(
                 scan_id, OverallStatus.NEEDS_MANUAL_REVIEW, [], {},
                 ai_recognition, ocr_info, None, "ocr", rec, online, start,
-                image_hash, image_path,
+                image_hash, image_path, _assess_readability(primary),
             )
         extraction_source = "ocr"
         fields = dict(ocr.fields)
@@ -194,6 +243,9 @@ def process_photo_scan_multi(scan_id: str, images: list[bytes],
     verdict.ai_recognition = ai_recognition
     verdict.ocr = ocr_info
     verdict.vision_extraction = vision_payload
+    # Advisory font-size/readability estimate on the front image (always attached
+    # to photo scans so it can't be missed; degrades to assessed=False).
+    verdict.readability = _assess_readability(primary)
 
     # Edge telemetry keys off whichever source actually read the label fields.
     ai_level, connectivity = _edge_telemetry(field_source, online)
@@ -214,7 +266,7 @@ def process_photo_scan_multi(scan_id: str, images: list[bytes],
 
 def _finish(scan_id, status, violations, parsed, ai_recognition, ocr_info,
             vision_payload, extraction_source, rec, online, start,
-            image_hash=None, image_path=None) -> ScanVerdict:
+            image_hash=None, image_path=None, readability=None) -> ScanVerdict:
     """Assemble a verdict for an early-return (e.g. glare retake) and persist."""
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     ai_level, connectivity = _edge_telemetry(rec.ai_source, online)
@@ -222,7 +274,7 @@ def _finish(scan_id, status, violations, parsed, ai_recognition, ocr_info,
         scan_id=scan_id, overall_status=status,
         rules_passed=0, rules_checked=0, violations=violations,
         parsed_fields=parsed, ai_recognition=ai_recognition, ocr=ocr_info,
-        vision_extraction=vision_payload,
+        vision_extraction=vision_payload, readability=readability,
         metadata=ScanMetadata(
             processing_ms=round(elapsed_ms, 2),
             ai_model_used=rec.model_name,

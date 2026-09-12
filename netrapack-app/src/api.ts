@@ -20,6 +20,16 @@ export type VisionExtraction = {
   country_of_origin?: string | null;
 };
 
+export type ReadabilityInfo = {
+  assessed: boolean;
+  approximate?: boolean;
+  median_char_px?: number;
+  image_height_px?: number;
+  char_height_fraction?: number;
+  likely_too_small?: boolean;
+  note?: string;
+};
+
 export type ScanVerdict = {
   scan_id: string;
   overall_status: string;
@@ -27,6 +37,7 @@ export type ScanVerdict = {
   rules_checked: number;
   violations: Violation[];
   vision_extraction?: VisionExtraction | null;
+  readability?: ReadabilityInfo | null;
   ai_recognition?: {
     category?: string;
     effective_category?: string;
