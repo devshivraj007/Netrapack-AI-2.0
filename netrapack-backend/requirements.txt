@@ -1,16 +1,24 @@
-fastapi==0.115.5
-uvicorn[standard]==0.32.1
-pydantic==2.10.3
-python-dotenv==1.0.1
+# NetraPack backend dependencies.
+#
+# These versions are verified against Python 3.12-3.14 (they ship prebuilt
+# wheels for 3.14, so `pip install` does not need a C compiler). If you are on
+# an older Python (3.10/3.11) these versions still work; the earlier pins were
+# tied to Python <= 3.12 and failed to build numpy/opencv from source on 3.14.
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.5
+python-dotenv==1.2.3
 httpx==0.28.1
-pytest==8.3.4
+pytest==9.1.1
 
-# Day 2: OCR + image processing
+# OCR + image processing (Tesseract fallback path). The Tesseract *binary*
+# must also be installed separately (see README) for the OCR path to run.
 pytesseract==0.3.13
-opencv-python-headless==4.10.0.84
-Pillow==11.0.0
-numpy==2.1.3
-python-multipart==0.0.19
+opencv-python-headless==5.0.0.93
+Pillow==12.3.0
+numpy==2.5.3
+python-multipart==0.0.32
 
-# Day 3: Section 36 legal notice PDF generation
-reportlab==4.2.5
+# Section 36 legal notice PDF generation.
+reportlab==5.0.1
