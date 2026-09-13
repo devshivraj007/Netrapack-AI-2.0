@@ -40,14 +40,21 @@ export default function Home() {
           />
 
           {isOfficer ? (
-            <View style={styles.officerBadge}>
-              <Text style={styles.officerBadgeText}>
-                Officer mode active ({session.get().role?.toUpperCase()})
-              </Text>
-              <Pressable onPress={() => session.logout()}>
-                <Text style={styles.logout}>Log out</Text>
-              </Pressable>
-            </View>
+            <>
+              <Button
+                label="SEARCH SCAN RECORDS"
+                variant="outline"
+                onPress={() => router.push("/history")}
+              />
+              <View style={styles.officerBadge}>
+                <Text style={styles.officerBadgeText}>
+                  Officer mode active ({session.get().role?.toUpperCase()})
+                </Text>
+                <Pressable onPress={() => session.logout()}>
+                  <Text style={styles.logout}>Log out</Text>
+                </Pressable>
+              </View>
+            </>
           ) : (
             <Pressable
               onPress={() => router.push("/officer-login")}

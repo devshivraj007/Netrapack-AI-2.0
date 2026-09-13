@@ -204,3 +204,41 @@ export async function chatQuery(
   if (!res.ok) throw new Error(`Chat failed (HTTP ${res.status})`);
   return (await res.json()) as ChatAnswer;
 }
+
+/** A scan/report summary row from the search endpoint. */
+export type ReportRow = {
+  scan_id: string;
+  created_at?: string;
+  overall_status?: string;
+  rules_passed?: number;
+  rules_checked?: number;
+  ai_category?: string | null;
+  investigation_status?: string | null;
+};
+
+/**
+ * Search/filter scans & reports (officer-only). Wraps GET /admin/reports.
+ * Contract: query params q | status | scan_id | product_name | date_from/to,
+ * response { count, reports: [...] }. Requires a Bearer token (officer/admin).
+ */
+export async function searchReports(
+  opts: { q?: string; status?: string; limit?: number },
+  token?: string,
+): Promise<{ count: number; reports: ReportRow[] }> {
+  const params = new URLSearchParams();
+  if (opts.q) params.set("q", opts.q);
+  if (opts.status) params.set("status", opts.status);
+  params.set("limit", String(opts.limit ?? 50));
+
+  const res = await fetch(`${API_BASE_URL}/admin/reports?${params.toString()}`, {
+    headers: {
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("Officer login required to search records.");
+  }
+  if (!res.ok) throw new Error(`Search failed (HTTP ${res.status})`);
+  return (await res.json()) as { count: number; reports: ReportRow[] };
+}
