@@ -52,10 +52,10 @@ OLLAMA_VISION_MODELS = ["qwen2.5vl:3b", "qwen2.5vl", "moondream", "moondream2"]
 OLLAMA_CHAT_MODEL = os.environ.get("OLLAMA_CHAT_MODEL", "llama3.2:3b")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
-# Fallback model tried automatically if the primary returns a transient/server
-# error (e.g. the 503 "high demand" we saw during testing). "gemini-flash-latest"
-# always points at a current flash model, so it survives model retirements too.
+# "gemini-flash-latest" always points at a current flash model (survives model
+# retirements) and is the alias reachable by the provided API key — versioned
+# ids like gemini-2.0-flash return 404 for this key. Use it as the primary.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
 GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-flash-latest")
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -307,11 +307,11 @@ class GeminiVisionProvider:
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         self.model = model or GEMINI_MODEL
         self.fallback_model = fallback_model or GEMINI_FALLBACK_MODEL
-        # Speed-tuned default: a short hard timeout so a slow/overloaded cloud
-        # fails fast and we fall back to local/OCR instead of making the officer
-        # wait. Overridable via GEMINI_TIMEOUT for batch/benchmark use.
+        # gemini-flash-latest responds in ~3s; give it comfortable headroom but
+        # still bounded so a stalled cloud call fails and we fall back rather
+        # than making the officer wait. Overridable via GEMINI_TIMEOUT.
         self.timeout = timeout if timeout is not None else float(
-            os.environ.get("GEMINI_TIMEOUT", 5.0)
+            os.environ.get("GEMINI_TIMEOUT", 15.0)
         )
 
     def is_available(self) -> tuple[bool, Optional[str]]:
