@@ -39,7 +39,7 @@ export function Button({
 
 const VARIANTS: Record<Variant, { bg: string; fg: string; border: string }> = {
   primary: { bg: colors.navy, fg: colors.white, border: colors.navy },
-  secondary: { bg: colors.saffron, fg: colors.white, border: colors.saffron },
+  secondary: { bg: colors.teal, fg: colors.white, border: colors.teal },
   danger: { bg: colors.red, fg: colors.white, border: colors.red },
   outline: { bg: colors.white, fg: colors.navy, border: colors.navy },
 };

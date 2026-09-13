@@ -1,40 +1,61 @@
 /**
- * NetraPack design system — modeled on official Indian government citizen apps
- * (DigiLocker / UMANG / Aarogya Setu), NOT a generic startup template.
+ * NetraPack design system — grounded in the official Government of India design
+ * system (GIGW 3.0 via the DBIM ToolKit), as used by MeitY / national portals.
  *
- * Principles encoded here:
- *  - Navy blue primary; saffron/orange as a SPARING accent (badges/active states).
- *  - Bold, solid status colors (green/red/amber) for immediate legibility.
- *  - Rectangular / minimally-rounded buttons, solid navy fill for primary.
- *  - Larger-than-default type for key info (MRP, status, violations).
- *  - No purple gradients, glassmorphism, pastels, or playful icons.
+ * Observed GIGW/DBIM patterns encoded here:
+ *  - Deep navy/indigo header bar with a circular GOI-style emblem + white bold
+ *    app name; minimal clutter.
+ *  - Solid, bold status blocks: teal-toned for compliant, maroon/red for
+ *    non-compliant, amber for needs-review — with a small breadcrumb-style
+ *    label ABOVE the main status text.
+ *  - White cards with a subtle border, small corner radius, a corner tag/badge,
+ *    bold title + muted description, arranged on a light page.
+ *  - Darker teal accent bar for secondary nav/tabs directly under the header.
+ *  - Light lavender / pale-purple highlight for active/selected items.
+ *  - Light page backgrounds everywhere; deep colors only in header/banners/accents.
  */
 
 export const colors = {
-  // Brand
-  navy: "#0B2F6B", // primary
-  navyDark: "#082352",
-  saffron: "#FF8A00", // accent — use sparingly
+  // Brand — GIGW deep indigo/navy
+  navy: "#1A1464", // primary header / deep indigo
+  navyDark: "#120E4A",
+  indigo: "#1A1464",
+  indigoSoft: "#E8E6F5",
+
+  // Teal accent (secondary nav bar, compliant tone)
+  teal: "#0E7C7B",
+  tealDark: "#0A5F5E",
+  tealSoft: "#E1F1F1",
+
+  // Saffron accent — sparing (badges/active highlights only)
+  saffron: "#FF8A00",
   saffronSoft: "#FFF1E0",
 
-  // Surfaces
-  bg: "#F4F6FA",
+  // Lavender selection highlight (active/selected states)
+  lavender: "#EDE9FB",
+  lavenderBorder: "#C9BFF0",
+
+  // Surfaces — light everywhere
+  bg: "#F5F6FA",
   card: "#FFFFFF",
-  border: "#D5DBE6",
-  headerBorder: "#C9D2E0",
+  border: "#DCE1EC",
+  headerBorder: "#120E4A",
 
   // Text
-  text: "#14213D",
+  text: "#1B1B2F",
   textMuted: "#5A6B85",
   textOnNavy: "#FFFFFF",
 
   // Status (solid, bold — used on banners/badges)
-  green: "#1B7F3B",
-  greenBg: "#1B7F3B",
-  red: "#B3261E",
-  redBg: "#B3261E",
+  green: "#0E7C7B", // teal-toned "compliant"
+  greenBg: "#0E7C7B",
+  greenSoft: "#E1F1F1",
+  red: "#8E1B2E", // maroon "non-compliant"
+  redBg: "#8E1B2E",
+  redSoft: "#F7E7EA",
   amber: "#B26A00",
   amberBg: "#C9820A",
+  amberSoft: "#FBEFD8",
   white: "#FFFFFF",
 };
 
@@ -48,10 +69,10 @@ export const spacing = {
 };
 
 export const radius = {
-  // Minimally rounded — official, not playful.
-  sm: 4,
-  md: 6,
-  lg: 8,
+  // Small corner radius per GIGW cards — official, not playful.
+  sm: 6,
+  md: 8,
+  lg: 12,
 };
 
 export const font = {
@@ -62,21 +83,41 @@ export const font = {
   body: 16,
   label: 13,
   small: 12,
-  statusBanner: 22,
+  statusBanner: 24,
+  breadcrumb: 12,
 };
 
-/** Map an overall_status string to its solid banner color + label. */
+/**
+ * Map an overall_status string to its solid banner color, a big status label,
+ * and a small breadcrumb-style label shown ABOVE it (GIGW status-block pattern).
+ */
 export function statusStyle(status?: string): {
   bg: string;
+  soft: string;
   label: string;
+  breadcrumb: string;
 } {
   const s = (status || "").toLowerCase();
   if (s === "fully_compliant" || s === "compliant") {
-    return { bg: colors.greenBg, label: "COMPLIANT" };
+    return {
+      bg: colors.greenBg,
+      soft: colors.greenSoft,
+      label: "COMPLIANT",
+      breadcrumb: "Compliance Check Result",
+    };
   }
   if (s === "non_compliant") {
-    return { bg: colors.redBg, label: "NON-COMPLIANT" };
+    return {
+      bg: colors.redBg,
+      soft: colors.redSoft,
+      label: "NON-COMPLIANT",
+      breadcrumb: "Compliance Check Result",
+    };
   }
-  // needs_manual_review or anything else
-  return { bg: colors.amberBg, label: "NEEDS REVIEW" };
+  return {
+    bg: colors.amberBg,
+    soft: colors.amberSoft,
+    label: "NEEDS REVIEW",
+    breadcrumb: "Compliance Check Result",
+  };
 }
