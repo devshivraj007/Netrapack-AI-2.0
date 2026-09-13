@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Pressable } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { useRouter } from "expo-router";
 import { Header } from "../src/components/Header";
 import { Button } from "../src/components/Button";
@@ -9,20 +10,58 @@ import { colors, font, radius, spacing } from "../src/theme";
 import { processPhoto } from "../src/api";
 import { setLastVerdict } from "../src/verdictStore";
 
+// Staged progress messages so the wait feels responsive even if it takes a few
+// seconds. We advance them on a timer while the request is in flight.
+const PROGRESS_STAGES = [
+  "Preparing image…",
+  "Reading label…",
+  "Checking compliance…",
+  "Almost done…",
+];
+
+/**
+ * Downscale a captured/picked image to ~1024px on the longest side and
+ * re-compress before upload. Big phone photos (3-4000px, several MB) are slow to
+ * send over the LAN and slow for the model; this cuts upload + processing time
+ * significantly. Falls back to the original URI if manipulation fails.
+ */
+async function downscale(uri: string): Promise<string> {
+  try {
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1024 } }],
+      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG },
+    );
+    return result.uri;
+  } catch {
+    return uri;
+  }
+}
+
 export default function Scan() {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string>("");
+  const [stageIndex, setStageIndex] = useState(0);
+
+  // Advance the progress message every ~1.5s while busy.
+  useEffect(() => {
+    if (!busy) return;
+    const id = setInterval(() => {
+      setStageIndex((i) => Math.min(i + 1, PROGRESS_STAGES.length - 1));
+    }, 1500);
+    return () => clearInterval(id);
+  }, [busy]);
 
   async function submit(uri: string) {
     setBusy(true);
     setError(null);
-    setStatus("Uploading & analysing label…");
+    setStageIndex(0);
     try {
-      const verdict = await processPhoto(uri);
+      const smaller = await downscale(uri);
+      const verdict = await processPhoto(smaller);
       setLastVerdict(verdict);
       router.replace("/verdict");
     } catch (e) {
@@ -55,10 +94,10 @@ export default function Scan() {
         <Header subtitle="Scanning" />
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.navy} />
-          <Text style={styles.busyText}>{status}</Text>
+          <Text style={styles.busyText}>{PROGRESS_STAGES[stageIndex]}</Text>
           <Text style={styles.busyHint}>
-            Vision AI is reading the printed declarations. This can take a few
-            seconds.
+            Reading the printed declarations and checking Legal Metrology
+            compliance.
           </Text>
         </View>
       </View>
