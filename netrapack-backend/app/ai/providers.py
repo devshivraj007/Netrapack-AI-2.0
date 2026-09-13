@@ -454,6 +454,72 @@ def _to_str(value) -> Optional[str]:
     return s or None
 
 
+# --- Post-extraction sanitisation ------------------------------------------
+# Vision models occasionally hallucinate or misread label noise as a bare number
+# (e.g. "42") for text fields, or emit placeholder junk. We validate the shape of
+# each field and drop implausible values to null rather than showing an officer a
+# fabricated reading. Better to say "Not declared" than to display garbage.
+
+_MONTH_RE = re.compile(
+    r"jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec", re.IGNORECASE
+)
+# A plausible printed date has either a month name, or two number groups
+# separated by / - . or space (e.g. 03/2026, 12-01-2026, 2026 03).
+_DATE_NUMSEP_RE = re.compile(r"\d{1,4}\s*[/\-.]\s*\d{1,4}")
+# Junk/placeholder tokens some models emit.
+_JUNK_TOKENS = {"n/a", "na", "none", "null", "nil", "-", "--", "unknown", "not visible"}
+
+
+def _clean_str(value) -> Optional[str]:
+    """Normalise a text field and drop obvious junk/placeholder tokens."""
+    s = _to_str(value)
+    if s is None:
+        return None
+    if s.strip().lower() in _JUNK_TOKENS:
+        return None
+    return s
+
+
+def _clean_date(value) -> Optional[str]:
+    """Return the printed date string only if it looks like a real date.
+
+    Rejects bare numbers like "42" (a common model misread) and junk tokens: a
+    real mfg/expiry declaration contains a month name OR a number-separator date
+    pattern OR a 4-digit year. Otherwise -> None ("Not declared").
+    """
+    s = _clean_str(value)
+    if s is None:
+        return None
+    if _MONTH_RE.search(s):
+        return s
+    if _DATE_NUMSEP_RE.search(s):
+        return s
+    if re.search(r"\b(19|20)\d{2}\b", s):  # a 4-digit year like 2026
+        return s
+    # A bare short number ("42", "7", "123") is not a plausible date.
+    return None
+
+
+def _clean_country(value) -> Optional[str]:
+    """Country of origin must contain letters. Reject bare numbers like '42'."""
+    s = _clean_str(value)
+    if s is None:
+        return None
+    if not re.search(r"[A-Za-z]", s):
+        return None
+    return s
+
+
+def _clean_price(value) -> Optional[float]:
+    """A price must be a positive, sane number. Reject 0 and absurd values."""
+    fp = _to_float(value)
+    if fp is None:
+        return None
+    if fp <= 0 or fp > 1_000_000:
+        return None
+    return fp
+
+
 def _extraction_from_data(
     data: dict, source: AiSource, model_name: str
 ) -> VisionExtraction:
@@ -462,20 +528,26 @@ def _extraction_from_data(
     all_prices: list[float] = []
     if isinstance(raw_prices, list):
         for p in raw_prices:
-            fp = _to_float(p)
+            fp = _clean_price(p)
             if fp is not None:
                 all_prices.append(fp)
+    # Sanitise every field: models sometimes emit a bare "42" or junk for a
+    # field they can't actually read. Validate the shape and drop implausible
+    # values to null so the app shows "Not declared" instead of a fake reading.
+    fssai = _clean_str(data.get("fssai_license_number"))
+    if fssai is not None and not re.search(r"\d", fssai):
+        fssai = None  # an FSSAI licence must contain digits
     return VisionExtraction(
-        mrp=_to_float(data.get("mrp")),
+        mrp=_clean_price(data.get("mrp")),
         mrp_all_prices=all_prices,
         mrp_is_ambiguous=bool(data.get("mrp_is_ambiguous", False)),
-        net_quantity=_to_str(data.get("net_quantity")),
-        unit_sale_price=_to_float(data.get("unit_sale_price")),
-        mfd_pkd_date=_to_str(data.get("mfd_pkd_date")),
-        expiry_date=_to_str(data.get("expiry_date")),
-        fssai_license_number=_to_str(data.get("fssai_license_number")),
-        manufacturer_details=_to_str(data.get("manufacturer_details")),
-        country_of_origin=_to_str(data.get("country_of_origin")),
+        net_quantity=_clean_str(data.get("net_quantity")),
+        unit_sale_price=_clean_price(data.get("unit_sale_price")),
+        mfd_pkd_date=_clean_date(data.get("mfd_pkd_date")),
+        expiry_date=_clean_date(data.get("expiry_date")),
+        fssai_license_number=fssai,
+        manufacturer_details=_clean_str(data.get("manufacturer_details")),
+        country_of_origin=_clean_country(data.get("country_of_origin")),
         ai_source=source,
         model_name=model_name,
     )
