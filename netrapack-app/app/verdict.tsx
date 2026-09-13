@@ -107,8 +107,9 @@ export default function Verdict() {
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <Header subtitle="Compliance Verdict" />
       <ScrollView contentContainerStyle={styles.body}>
-        {/* Solid, bold status banner */}
+        {/* GIGW status block: small breadcrumb label above the big status */}
         <View style={[styles.banner, { backgroundColor: st.bg }]}>
+          <Text style={styles.bannerCrumb}>{st.breadcrumb}</Text>
           <Text style={styles.bannerLabel}>{st.label}</Text>
           <Text style={styles.bannerSub}>
             {verdict.rules_passed}/{verdict.rules_checked} checks passed
@@ -287,6 +288,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     alignItems: "center",
   },
+  bannerCrumb: {
+    color: colors.white,
+    fontSize: font.breadcrumb,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    opacity: 0.85,
+    marginBottom: 2,
+  },
   bannerLabel: { color: colors.white, fontSize: font.statusBanner, fontWeight: "900", letterSpacing: 0.5 },
   bannerSub: { color: colors.white, fontSize: font.label, fontWeight: "700", marginTop: 2, opacity: 0.95 },
 
@@ -340,8 +349,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   catLabel: { fontSize: font.small, color: colors.textMuted, fontWeight: "700" },
-  catBadge: { backgroundColor: colors.saffronSoft, borderColor: colors.saffron, borderWidth: 1, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  catBadgeText: { color: colors.navyDark, fontWeight: "800", fontSize: font.small },
+  catBadge: { backgroundColor: colors.lavender, borderColor: colors.lavenderBorder, borderWidth: 1, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 },
+  catBadgeText: { color: colors.navy, fontWeight: "800", fontSize: font.small },
   catStatus: { fontSize: font.small, color: colors.textMuted, fontStyle: "italic" },
 
   violWrap: {
@@ -367,7 +376,7 @@ const styles = StyleSheet.create({
   officer: {
     backgroundColor: colors.card,
     borderWidth: 1.5,
-    borderColor: colors.saffron,
+    borderColor: colors.teal,
     borderRadius: radius.md,
     padding: spacing.lg,
     gap: spacing.md,
@@ -383,9 +392,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   notice: {
-    color: colors.navyDark,
-    backgroundColor: colors.saffronSoft,
-    borderColor: colors.saffron,
+    color: colors.tealDark,
+    backgroundColor: colors.tealSoft,
+    borderColor: colors.teal,
     borderWidth: 1,
     borderRadius: radius.sm,
     padding: spacing.md,
