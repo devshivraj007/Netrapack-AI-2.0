@@ -62,9 +62,12 @@ GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 # HTTP statuses that are worth retrying on the fallback model:
 #   429 rate limited, 500 internal, 503 overloaded, 404 model retired/unavailable.
 _GEMINI_RETRYABLE_STATUS = {404, 429, 500, 503}
-# Extraction retries per model, with linear backoff, to ride out brief 503s.
-_GEMINI_MAX_RETRIES = 2
-_GEMINI_BACKOFF_SECONDS = 3.0
+# Speed-tuned for interactive scanning: ONE attempt per model with a short
+# backoff. Combined with the short GEMINI_TIMEOUT below, worst-case wait is
+# ~2 models x timeout instead of minutes, so a slow/overloaded cloud fails fast
+# and the pipeline falls back to local Ollama / OCR quickly.
+_GEMINI_MAX_RETRIES = 1
+_GEMINI_BACKOFF_SECONDS = 0.5
 
 # The instruction we give either model. We ask for STRICT JSON so parsing is
 # deterministic across models.
@@ -304,10 +307,11 @@ class GeminiVisionProvider:
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         self.model = model or GEMINI_MODEL
         self.fallback_model = fallback_model or GEMINI_FALLBACK_MODEL
-        # Structured extraction from full label images is heavier than a quick
-        # category guess; give it a generous timeout (overridable via env).
+        # Speed-tuned default: a short hard timeout so a slow/overloaded cloud
+        # fails fast and we fall back to local/OCR instead of making the officer
+        # wait. Overridable via GEMINI_TIMEOUT for batch/benchmark use.
         self.timeout = timeout if timeout is not None else float(
-            os.environ.get("GEMINI_TIMEOUT", 90.0)
+            os.environ.get("GEMINI_TIMEOUT", 5.0)
         )
 
     def is_available(self) -> tuple[bool, Optional[str]]:

@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -176,16 +177,44 @@ def process_photo_scan(scan_id: str, image_bytes: bytes,
     return process_photo_scan_multi(scan_id, [image_bytes], barcode)
 
 
+def _recognize_from_reference(ref: dict) -> RecognitionResult:
+    """Build a recognition result from a known reference product (barcode match).
+
+    Skips the AI category call entirely: the reference DB already tells us the
+    category with certainty, so we return a full-confidence result and let the
+    rule engine run immediately.
+    """
+    from app.ai.types import ProductCategory
+
+    try:
+        category = ProductCategory(str(ref.get("category", "general")))
+    except ValueError:
+        category = ProductCategory.GENERAL
+    return RecognitionResult(
+        category=category,
+        confidence=1.0,
+        ai_source=AiSource.NONE,
+        model_name="reference_db",
+        below_confidence_threshold=False,
+        confirmation_status="ai_suggested_not_confirmed",
+        note=(
+            f"Category '{category.value}' taken from the reference product "
+            "database (barcode match) — no AI category call needed."
+        ),
+    )
+
+
 def process_photo_scan_multi(scan_id: str, images: list[bytes],
                             barcode: Optional[str] = None) -> ScanVerdict:
     """Day 3 photo path (front + back).
 
-    Field extraction strategy:
-      1. Vision AI structured extraction (Level 1 Ollama -> Level 2 Gemini) on
-         the merged image set. This is the primary reader for real labels.
-      2. If vision is unavailable (Level 3), fall back to Tesseract OCR on the
-         first image, including the glare/retake guard.
-    Category recognition still runs (drives the FSSAI gate + officer confirm).
+    Speed strategy:
+      0. Barcode shortcut: if the barcode matches a known reference product, use
+         its category directly and SKIP the AI category-recognition call.
+      1. Category recognition (AI) and field reading run CONCURRENTLY (not
+         sequentially) when a vision call is needed, so we pay one round-trip of
+         wall-clock time instead of two.
+      2. Field reading: Gemini (short timeout) -> local Ollama -> Tesseract OCR.
     """
     start = time.perf_counter()
     online = detect_online()
@@ -196,12 +225,28 @@ def process_photo_scan_multi(scan_id: str, images: list[bytes],
     if primary:
         image_hash, image_path = _store_image(scan_id, primary)
 
-    # Product category recognition (front image is the best product view).
-    rec = _recognizer.recognize(primary)
+    # --- Barcode shortcut: known product -> skip the AI category call --------
+    reference = None
+    if barcode:
+        try:
+            reference = repository.get_product_by_barcode(barcode)
+        except Exception:
+            reference = None
+
+    # --- Run category recognition + field extraction CONCURRENTLY ------------
+    # When the barcode is known we already have the category, so we only need
+    # the field extraction; otherwise we fire both at once and join.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fields_future = pool.submit(_recognizer.extract_fields, images)
+        if reference is not None:
+            rec = _recognize_from_reference(reference)
+        else:
+            rec_future = pool.submit(_recognizer.recognize, primary)
+            rec = rec_future.result()
+        vision = fields_future.result()
+
     ai_recognition = _to_ai_recognition(rec)
 
-    # --- Primary: Vision AI structured extraction over all images ------------
-    vision = _recognizer.extract_fields(images)
     ocr_info: Optional[OcrInfo] = None
     extraction_source = "none"
     vision_payload = None
