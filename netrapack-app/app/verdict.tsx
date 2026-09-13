@@ -6,6 +6,7 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Header } from "../src/components/Header";
@@ -14,6 +15,32 @@ import { colors, font, radius, spacing, statusStyle } from "../src/theme";
 import { getLastVerdict } from "../src/verdictStore";
 import { session } from "../src/session";
 import { confirmCategory, generateNotice, type VisionExtraction } from "../src/api";
+
+const NCH_HELPLINE = "1800-11-4000";
+const EJAGRITI_URL = "https://e-jagriti.gov.in/";
+
+/** Is this a food/beverage product (drives the Health tab visibility)? */
+function isFoodCategory(cat?: string): boolean {
+  const c = (cat || "").toLowerCase();
+  return c.includes("food") || c.includes("beverage");
+}
+
+/** Derive a simple expiry status from the extracted expiry date string. */
+function expiryStatus(expiry?: string | null): { label: string; tone: "ok" | "warn" | "unknown" } {
+  if (!expiry || !String(expiry).trim()) {
+    return { label: "Expiry / best-before not detected on the label", tone: "unknown" };
+  }
+  const now = new Date();
+  const parsed = new Date(expiry);
+  if (!isNaN(parsed.getTime())) {
+    if (parsed.getTime() < now.getTime()) {
+      return { label: `Expired (${expiry}) — do not consume`, tone: "warn" };
+    }
+    return { label: `Within date (best before ${expiry})`, tone: "ok" };
+  }
+  // Unparseable but present — show it as-is for the officer to read.
+  return { label: `Best before: ${expiry}`, tone: "ok" };
+}
 
 const CATEGORIES = [
   "food_and_beverage",
@@ -57,6 +84,19 @@ export default function Verdict() {
     verdict.ai_recognition?.category ||
     verdict.ai_recognition?.effective_category ||
     "general";
+  const showHealth = isFoodCategory(confirmedCategory ?? aiCategory);
+  const hasViolations = verdict.violations.length > 0;
+  const exp = expiryStatus(ve.expiry_date);
+
+  async function openExternal(url: string, label: string) {
+    try {
+      const ok = await Linking.canOpenURL(url);
+      if (ok) await Linking.openURL(url);
+      else Alert.alert(label, `Could not open: ${url}`);
+    } catch {
+      Alert.alert(label, `Could not open: ${url}`);
+    }
+  }
 
   async function doConfirm(category: string) {
     setWorking(true);
@@ -134,6 +174,56 @@ export default function Verdict() {
           <Field label="Manufacturer" value={ve.manufacturer_details} />
         </View>
 
+        {/* Health / Nutrition tab — food & beverage only */}
+        {showHealth ? (
+          <View style={styles.healthWrap}>
+            <View style={styles.healthHead}>
+              <Text style={styles.reportTitle}>HEALTH & SAFETY</Text>
+              <View style={styles.foodTag}>
+                <Text style={styles.foodTagText}>FOOD / BEVERAGE</Text>
+              </View>
+            </View>
+
+            {/* Expiry status */}
+            <View style={styles.healthRow}>
+              <Text style={styles.healthLabel}>Expiry status</Text>
+              <Text
+                style={[
+                  styles.healthValue,
+                  exp.tone === "warn" ? { color: colors.red } :
+                  exp.tone === "ok" ? { color: colors.green } :
+                  { color: colors.textMuted },
+                ]}
+              >
+                {exp.label}
+              </Text>
+            </View>
+
+            {/* FSSAI presence (food safety marker) */}
+            <View style={styles.healthRow}>
+              <Text style={styles.healthLabel}>FSSAI licence</Text>
+              <Text
+                style={[
+                  styles.healthValue,
+                  ve.fssai_license_number ? { color: colors.green } : { color: colors.red },
+                ]}
+              >
+                {ve.fssai_license_number
+                  ? `Declared: ${ve.fssai_license_number}`
+                  : "Not declared — mandatory for food products (FSS Act 2006)"}
+              </Text>
+            </View>
+
+            {/* Allergen / nutrition — honest scope note */}
+            <Text style={styles.healthNote}>
+              Nutrition table and allergen details are printed on the pack and
+              should be read directly. Automated nutrition extraction is not yet
+              available; this section reports the safety markers we can verify
+              (expiry and FSSAI licensing).
+            </Text>
+          </View>
+        ) : null}
+
         {/* Readability / font-size advisory (LMPC Rule 9 area) */}
         {verdict.readability ? (
           <View
@@ -208,6 +298,35 @@ export default function Verdict() {
             ))
           )}
         </View>
+
+        {/* Consumer redressal actions — shown when a violation is found */}
+        {hasViolations ? (
+          <View style={styles.redressWrap}>
+            <Text style={styles.reportTitle}>CONSUMER ACTIONS</Text>
+            <Text style={styles.muted}>
+              This product has compliance issues. You can report it:
+            </Text>
+            <Button
+              label={`CALL NCH HELPLINE (${NCH_HELPLINE})`}
+              variant="secondary"
+              onPress={() => openExternal(`tel:${NCH_HELPLINE.replace(/-/g, "")}`, "National Consumer Helpline")}
+            />
+            <Button
+              label="FILE COMPLAINT ON e-JAGRITI"
+              variant="outline"
+              onPress={() => openExternal(EJAGRITI_URL, "e-Jagriti")}
+            />
+          </View>
+        ) : null}
+
+        {/* Ask the compliance chatbot about this result */}
+        <Button
+          label="ASK ABOUT THIS RESULT"
+          variant="outline"
+          onPress={() =>
+            router.push({ pathname: "/chat", params: { scanId: verdict!.scan_id } })
+          }
+        />
 
         {/* Officer actions */}
         {isOfficer ? (
@@ -318,6 +437,42 @@ const styles = StyleSheet.create({
   fieldValue: { fontSize: font.h3, color: colors.text, fontWeight: "700", marginTop: 2 },
   fieldMissing: { color: colors.textMuted, fontStyle: "italic", fontWeight: "600" },
   ambiguous: { color: colors.amber, fontSize: font.small, fontWeight: "700", marginTop: spacing.xs },
+
+  healthWrap: {
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    borderColor: colors.teal,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+  },
+  healthHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
+  foodTag: {
+    backgroundColor: colors.tealSoft,
+    borderColor: colors.teal,
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  foodTagText: { color: colors.tealDark, fontWeight: "800", fontSize: 10, letterSpacing: 0.5 },
+  healthRow: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  healthLabel: { fontSize: font.small, color: colors.textMuted, fontWeight: "700", textTransform: "uppercase" },
+  healthValue: { fontSize: font.body, fontWeight: "700", marginTop: 2, lineHeight: 20 },
+  healthNote: { fontSize: font.small, color: colors.textMuted, fontStyle: "italic", marginTop: spacing.sm, lineHeight: 16 },
+
+  redressWrap: {
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    borderColor: colors.red,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
 
   readWrap: {
     backgroundColor: colors.card,

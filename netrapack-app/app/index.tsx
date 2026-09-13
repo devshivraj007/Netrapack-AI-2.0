@@ -33,6 +33,12 @@ export default function Home() {
             onPress={() => router.push("/scan")}
           />
 
+          <Button
+            label="ASK COMPLIANCE ASSISTANT"
+            variant="outline"
+            onPress={() => router.push("/chat")}
+          />
+
           {isOfficer ? (
             <View style={styles.officerBadge}>
               <Text style={styles.officerBadgeText}>
