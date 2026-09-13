@@ -174,3 +174,33 @@ export async function generateNotice(
   if (!res.ok) throw new Error(`Notice generation failed (HTTP ${res.status})`);
   return await res.json();
 }
+
+/** Chatbot answer about a specific scan (POST /chat/query). */
+export type ChatAnswer = {
+  scan_id: string;
+  question: string;
+  answer: string;
+  ai_source: string;
+  ai_level: string;
+  model?: string | null;
+};
+
+/**
+ * Ask a plain-language question about a scan's compliance.
+ * Contract matches app/api/chat_routes.py: POST /chat/query {scan_id, question}.
+ */
+export async function chatQuery(
+  scanId: string,
+  question: string,
+): Promise<ChatAnswer> {
+  const res = await fetch(`${API_BASE_URL}/chat/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ scan_id: scanId, question }),
+  });
+  if (res.status === 404) {
+    throw new Error("This scan was not found on the server. Try scanning again.");
+  }
+  if (!res.ok) throw new Error(`Chat failed (HTTP ${res.status})`);
+  return (await res.json()) as ChatAnswer;
+}
