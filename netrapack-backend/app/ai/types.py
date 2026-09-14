@@ -61,6 +61,7 @@ class VisionExtraction(BaseModel):
     fssai_license_number: Optional[str] = None
     manufacturer_details: Optional[str] = None
     country_of_origin: Optional[str] = None
+    consumer_care_details: Optional[str] = None
 
     # Provenance for the demo badge / debugging.
     ai_source: "AiSource" = AiSource.NONE
@@ -88,7 +89,7 @@ class VisionExtraction(BaseModel):
             "expiry_date_declaration": self.expiry_date,
             "country_of_origin_declaration": self.country_of_origin,
             "manufacturer_name_address": self.manufacturer_details,
-            "consumer_care_details": None,  # not in the required schema
+            "consumer_care_details": self.consumer_care_details,
             "fssai_license_number": (
                 f"FSSAI {self.fssai_license_number}"
                 if self.fssai_license_number else None

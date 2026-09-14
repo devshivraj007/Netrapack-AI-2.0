@@ -17,7 +17,8 @@ import { session } from "../src/session";
 import { confirmCategory, generateNotice, type VisionExtraction } from "../src/api";
 
 const NCH_HELPLINE = "1800-11-4000";
-const EJAGRITI_URL = "https://e-jagriti.gov.in/";
+// e-Jagriti was merged into the main NCH consumer complaint portal.
+const EJAGRITI_URL = "https://consumerhelpline.gov.in/";
 
 /** Is this a food/beverage product (drives the Health tab visibility)? */
 function isFoodCategory(cat?: string): boolean {
@@ -312,9 +313,9 @@ export default function Verdict() {
               onPress={() => openExternal(`tel:${NCH_HELPLINE.replace(/-/g, "")}`, "National Consumer Helpline")}
             />
             <Button
-              label="FILE COMPLAINT ON e-JAGRITI"
+              label="FILE COMPLAINT ONLINE (NCH Portal)"
               variant="outline"
-              onPress={() => openExternal(EJAGRITI_URL, "e-Jagriti")}
+              onPress={() => openExternal(EJAGRITI_URL, "NCH Complaint Portal")}
             />
           </View>
         ) : null}

@@ -91,23 +91,25 @@ export async function loginRequest(
 }
 
 /**
- * Upload a captured photo to the backend and return the verdict.
- * Matches the backend contract: multipart with scan_id (Form) + image (File).
+ * Upload 1–4 captured photos to the backend and return one merged verdict.
+ * Matches the backend contract: multipart with scan_id (Form) + images[] (Files).
  */
-export async function processPhoto(
-  photoUri: string,
+export async function processPhotos(
+  photoUris: string[],
   opts?: { scanId?: string; barcode?: string },
 ): Promise<ScanVerdict> {
   const scanId = opts?.scanId ?? newScanId();
   const form = new FormData();
   form.append("scan_id", scanId);
   if (opts?.barcode) form.append("barcode", opts.barcode);
-  // React Native FormData file object.
-  form.append("image", {
-    uri: photoUri,
-    name: "front.jpg",
-    type: "image/jpeg",
-  } as unknown as Blob);
+  // React Native FormData accepts multiple values for the same key.
+  for (let i = 0; i < Math.min(photoUris.length, 4); i++) {
+    form.append("images", {
+      uri: photoUris[i],
+      name: `photo_${i}.jpg`,
+      type: "image/jpeg",
+    } as unknown as Blob);
+  }
 
   const res = await fetch(`${API_BASE_URL}/scan/process-photo`, {
     method: "POST",
@@ -118,6 +120,17 @@ export async function processPhoto(
     throw new Error(`Scan failed (HTTP ${res.status})`);
   }
   return (await res.json()) as ScanVerdict;
+}
+
+/**
+ * Convenience wrapper: upload a single photo (backward compat).
+ * @deprecated prefer processPhotos([uri])
+ */
+export async function processPhoto(
+  photoUri: string,
+  opts?: { scanId?: string; barcode?: string },
+): Promise<ScanVerdict> {
+  return processPhotos([photoUri], opts);
 }
 
 /** Officer: confirm/override the AI-suggested category. */

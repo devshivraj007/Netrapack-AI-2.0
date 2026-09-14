@@ -49,6 +49,18 @@ _UNIT_TABLE: dict[str, tuple[str, float]] = {
     "unit": (COUNT, 1.0),
     "units": (COUNT, 1.0),
     "n": (COUNT, 1.0),
+    # Common Indian label notations for single/counted items
+    "no": (COUNT, 1.0),
+    "nos": (COUNT, 1.0),
+    "no.": (COUNT, 1.0),
+    "nos.": (COUNT, 1.0),
+    "number": (COUNT, 1.0),
+    "item": (COUNT, 1.0),
+    "items": (COUNT, 1.0),
+    "pkt": (COUNT, 1.0),
+    "pkts": (COUNT, 1.0),
+    "packet": (COUNT, 1.0),
+    "packets": (COUNT, 1.0),
 }
 
 _BASE_UNIT_LABEL = {MASS: "g", VOLUME: "ml", COUNT: "piece", LENGTH: "m"}
@@ -107,7 +119,17 @@ def parse_prices(text: Optional[str]) -> PriceParseResult:
 # Quantity parsing
 # ---------------------------------------------------------------------------
 _QTY_TOKEN_RE = re.compile(
-    r"(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|gram|grams|mg|l|ltr|litre|litres|liter|ml|m|metre|meter|cm|piece|pieces|pcs|pc|units|unit|n)\b",
+    r"(\d+(?:\.\d+)?)\s*"
+    r"(kg|g|gm|gms|gram|grams|mg"
+    r"|l|ltr|litres?|liters?"
+    r"|ml"
+    r"|m|metres?|meters?|cm"
+    r"|pieces?|pcs|pc"
+    r"|units?"
+    r"|packets?|pkts?|pkt"
+    r"|nos?\.?|number"
+    r"|items?"
+    r"|n)\b",
     re.IGNORECASE,
 )
 _MULTIPACK_RE = re.compile(r"(\d+)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]+)", re.IGNORECASE)

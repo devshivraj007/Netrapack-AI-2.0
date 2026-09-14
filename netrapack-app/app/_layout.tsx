@@ -11,7 +11,10 @@ export default function RootLayout() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.bg },
+          // Smooth cross-fade between screens.
+          animation: "fade",
         }}
+        initialRouteName="welcome"
       />
     </SafeAreaProvider>
   );

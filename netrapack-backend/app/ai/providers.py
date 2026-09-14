@@ -104,13 +104,17 @@ _EXTRACTION_PROMPT = (
     '  "mrp": number or null,               // the ACTIVE selling MRP in INR (see price rules)\n'
     '  "mrp_all_prices": [numbers],         // EVERY distinct price seen near MRP, incl. struck-through\n'
     '  "mrp_is_ambiguous": true/false,      // true if you CANNOT tell which price is the active one\n'
-    '  "net_quantity": string or null,      // e.g. "150g", "300ml", "1 unit"\n'
+    '  "net_quantity": string or null,      // e.g. "150g", "300ml", "1 N", "1 No", "1 unit"\n'
     '  "unit_sale_price": number or null,   // per-unit price if printed, else null\n'
     '  "mfd_pkd_date": string or null,      // manufacture/packed date as printed\n'
     '  "expiry_date": string or null,       // expiry/best-before/use-by as printed\n'
     '  "fssai_license_number": string or null, // the 14-digit number only, if present\n'
-    '  "manufacturer_details": string or null, // name + address block as printed\n'
-    '  "country_of_origin": string or null  // e.g. "India", "China", "Sri Lanka"\n'
+    '  "manufacturer_details": string or null, // ONLY the manufacturer/packer/importer name + address block\n'
+    '  "country_of_origin": string or null, // e.g. "India", "China", "Sri Lanka"\n'
+    '  "consumer_care_details": string or null // Consumer care / customer service contact ONLY:\n'
+    '     // Any phone (e.g. "Toll Free: 1800-xxx", "Executive Number: +91 xxx", "Customer Care: xxx"),\n'
+    '     // email (e.g. "help@brand.com"), or helpline text printed on the pack for consumer complaints.\n'
+    '     // DO NOT put manufacturer address here. If none found, use null.\n'
     "}\n"
     "PRICE RULES (important):\n"
     "- List every distinct price you see near the MRP in mrp_all_prices.\n"
@@ -732,6 +736,7 @@ def _extraction_from_data(
         fssai_license_number=fssai,
         manufacturer_details=_clean_str(data.get("manufacturer_details")),
         country_of_origin=_clean_country(data.get("country_of_origin")),
+        consumer_care_details=_clean_str(data.get("consumer_care_details")),
         ai_source=source,
         model_name=model_name,
     )

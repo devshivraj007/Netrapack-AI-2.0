@@ -3,9 +3,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, font, spacing } from "../theme";
 
 /**
- * Official GIGW/DBIM header: a deep indigo bar with a circular GOI-style emblem
- * and the app name in white bold text, plus a darker teal secondary-nav accent
- * bar directly below carrying the current section title.
+ * Official GIGW/DBIM header: deep indigo bar with a proper Government of India
+ * circular seal badge (geometric, no emoji — navy/gold ring with "DCA" text and
+ * "Dept. of Consumer Affairs" bilingual text next to it), plus a darker teal
+ * secondary-nav accent bar carrying the current section title.
+ *
+ * Emblem design: a concentric-ring circular badge with:
+ *   - Outer saffron/gold ring
+ *   - White inner disc
+ *   - Bold navy "DCA" acronym
+ *   - Small "GoI" tag below the main logo block (right side)
  */
 export function Header({ subtitle }: { subtitle?: string }) {
   const insets = useSafeAreaInsets();
@@ -14,18 +21,34 @@ export function Header({ subtitle }: { subtitle?: string }) {
       {/* Deep indigo brand bar */}
       <View style={[styles.bar, { paddingTop: insets.top + spacing.sm }]}>
         <View style={styles.row}>
-          <View style={styles.emblem}>
-            <Text style={styles.emblemText}>NP</Text>
+
+          {/* Geometric GoI circular seal */}
+          <View style={styles.sealOuter}>
+            <View style={styles.sealMiddle}>
+              <View style={styles.sealInner}>
+                <Text style={styles.sealAcronym}>DCA</Text>
+              </View>
+            </View>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>NetraPack</Text>
-            <Text style={styles.brandSub}>Legal Metrology Compliance</Text>
+
+          {/* Bilingual department name + app sub-brand */}
+          <View style={{ flex: 1, gap: 1 }}>
+            <Text style={styles.hindiTitle} numberOfLines={1}>
+              उपभोक्ता मामले विभाग
+            </Text>
+            <Text style={styles.engTitle} numberOfLines={1}>
+              DEPARTMENT OF CONSUMER AFFAIRS
+            </Text>
+            <Text style={styles.appBrand}>NetraPack · Legal Metrology</Text>
           </View>
+
+          {/* Small GoI tag */}
           <View style={styles.govTag}>
             <Text style={styles.govTagText}>GoI</Text>
           </View>
         </View>
       </View>
+
       {/* Teal secondary-nav accent bar */}
       {subtitle ? (
         <View style={styles.subNav}>
@@ -45,26 +68,74 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  emblem: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.white,
+
+  // Geometric concentric-ring circular seal (outer gold → middle white → inner)
+  sealOuter: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.saffron,     // gold/saffron outer ring
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: colors.saffron,
   },
-  emblemText: { color: colors.navy, fontWeight: "900", fontSize: 15 },
-  title: { color: colors.white, fontSize: font.h2, fontWeight: "900", letterSpacing: 0.3 },
-  brandSub: { color: "#C7C3E8", fontSize: font.small, fontWeight: "600" },
+  sealMiddle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.white,       // white middle ring
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sealInner: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.navy,        // deep navy inner disc
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sealAcronym: {
+    color: colors.white,
+    fontWeight: "900",
+    fontSize: 10,
+    letterSpacing: 0.5,
+  },
+
+  // Bilingual department text
+  hindiTitle: {
+    color: "#E8E6F5",
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
+  engTitle: {
+    color: colors.white,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+  appBrand: {
+    color: "#9B97C8",
+    fontSize: 10,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+
+  // Small "GoI" badge (right side)
   govTag: {
     backgroundColor: colors.saffron,
     borderRadius: 4,
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,
   },
-  govTagText: { color: colors.white, fontSize: 11, fontWeight: "900", letterSpacing: 0.5 },
+  govTagText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+
+  // Teal secondary nav bar
   subNav: {
     backgroundColor: colors.teal,
     paddingHorizontal: spacing.lg,

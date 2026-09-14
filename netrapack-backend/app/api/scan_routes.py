@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, File, Form, UploadFile
 
@@ -28,25 +28,25 @@ def process_scan(request: ScanRequest) -> ScanVerdict:
 @router.post(
     "/process-photo",
     response_model=ScanVerdict,
-    summary="Process a scan from real photo(s) (Day 3: Vision AI extraction)",
+    summary="Process a scan from real photo(s) — up to 4 images (Day 3: Vision AI extraction)",
 )
 async def process_photo(
     scan_id: str = Form(...),
     barcode: Optional[str] = Form(None),
-    image: UploadFile = File(..., description="Front image (required)."),
-    image_back: Optional[UploadFile] = File(None, description="Back image (optional)."),
+    images: List[UploadFile] = File(..., description="1–4 images of the same product label."),
 ) -> ScanVerdict:
     """Full Day 3 pipeline: product recognition + Vision AI field extraction.
 
-    Accepts front (and optional back) photos. Runs product recognition, then
-    Vision AI structured field extraction (Level 1 Ollama -> Level 2 Gemini) as
-    the primary label reader, falling back to Tesseract OCR when no vision model
-    is available. The extracted fields feed the Day 1 rule engine unchanged.
+    Accepts 1–4 photos of the same product (front, back, side, barcode
+    close-up). All images are merged: the vision model sees all panels at once
+    and the rule engine runs on the combined result. At most 4 images are
+    processed; extras are silently dropped.
     """
-    images = [await image.read()]
-    if image_back is not None:
-        images.append(await image_back.read())
-    return scan_service.process_photo_scan_multi(scan_id, images, barcode)
+    image_bytes = [await img.read() for img in images[:4]]
+    if not image_bytes:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="At least one image is required.")
+    return scan_service.process_photo_scan_multi(scan_id, image_bytes, barcode)
 
 
 @router.post("/readability-check",
