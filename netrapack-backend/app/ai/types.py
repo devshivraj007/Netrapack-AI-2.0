@@ -36,6 +36,7 @@ class PackageShape(str, Enum):
 
 
 class AiSource(str, Enum):
+    CLOUD_GROQ = "cloud_groq"
     LOCAL_OLLAMA = "local_ollama"
     CLOUD_GEMINI = "cloud_gemini"
     NONE = "none"  # no AI available -> rule engine only (Level 3)

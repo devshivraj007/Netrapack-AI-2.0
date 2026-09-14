@@ -1,16 +1,16 @@
-"""Product recognition with the 3-level fallback chain.
+"""Product recognition with the 4-tier fallback chain.
 
-Order (Gemini-primary, per reliability decision on Day 6):
-    Level 1: Gemini cloud (gemini-3.6-flash) - primary; most reliable extractor
-    Level 2: local AI (Ollama qwen2.5vl:3b)  - fallback when cloud unavailable
-    Level 3: neither                         - category = general / OCR fallback
+Order (Groq-primary, low latency + high reliability):
+    Level 1: Groq cloud (qwen/qwen3.8-27b)    - primary ultra-fast LPU extractor
+    Level 2: Gemini cloud (gemini-3.6-flash)  - secondary cloud AI fallback
+    Level 3: local AI (Ollama qwen2.5vl:3b)   - offline local safety net
+    Level 4: neither                          - category = general / OCR fallback
 
-Rationale: the 21-product benchmark showed the local 3B model degrading to OCR
-on most real labels, while Gemini extracts cleanly. So Gemini leads and local
-qwen is the offline safety net. Ollama still guarantees the app works with no
-internet.
+Rationale: Groq provides near-instant LPU inference (~2-5s) with structured JSON
+mode, while Gemini provides a robust secondary cloud fallback, and local qwen is
+the offline air-gapped safety net.
 
-The confidence gate (< 70% -> general) applies to BOTH AI levels. Whatever the
+The confidence gate (< 70% -> general) applies to ALL AI levels. Whatever the
 source, the result is always labelled "AI-suggested, not yet confirmed" and an
 officer must confirm/change it before official use (Day 3).
 """
@@ -20,7 +20,7 @@ from __future__ import annotations
 import socket
 from typing import Optional
 
-from .providers import GeminiVisionProvider, OllamaVisionProvider
+from .providers import GeminiVisionProvider, GroqVisionProvider, OllamaVisionProvider
 from .types import (
     AiSource,
     CONFIDENCE_THRESHOLD,
@@ -43,19 +43,24 @@ def detect_online() -> bool:
 class ProductRecognizer:
     def __init__(
         self,
-        ollama: Optional[OllamaVisionProvider] = None,
+        groq: Optional[GroqVisionProvider] = None,
         gemini: Optional[GeminiVisionProvider] = None,
+        ollama: Optional[OllamaVisionProvider] = None,
     ):
-        self.ollama = ollama or OllamaVisionProvider()
+        self.groq = groq or GroqVisionProvider()
         self.gemini = gemini or GeminiVisionProvider()
+        self.ollama = ollama or OllamaVisionProvider()
 
     def recognize(self, image_bytes: bytes) -> RecognitionResult:
-        # Level 1: Gemini cloud (primary).
-        result = self._try_provider(self.gemini, image_bytes)
-        # Level 2: local Ollama (fallback when cloud is unavailable/fails).
+        # Level 1: Groq cloud (primary).
+        result = self._try_provider(self.groq, image_bytes)
+        # Level 2: Gemini cloud (secondary fallback).
+        if result is None:
+            result = self._try_provider(self.gemini, image_bytes)
+        # Level 3: local Ollama (offline fallback).
         if result is None:
             result = self._try_provider(self.ollama, image_bytes)
-        # Level 3: no AI available -> general, standard checks only.
+        # Level 4: no AI available -> general, standard checks only.
         if result is None:
             return RecognitionResult(
                 category=ProductCategory.GENERAL,
@@ -84,13 +89,10 @@ class ProductRecognizer:
             return None
 
     def extract_fields(self, images: list[bytes]) -> Optional[VisionExtraction]:
-        """Vision structured extraction with the same 3-level fallback.
-
-        Gemini (cloud) is tried FIRST as the reliable primary extractor; local
-        qwen is the offline fallback. Returns None only if BOTH cloud and local
-        vision are unavailable/failed, in which case the caller falls back to OCR.
+        """Vision structured extraction with the same 4-tier fallback:
+        Groq -> Gemini -> Ollama -> None (caller falls back to OCR).
         """
-        for provider in (self.gemini, self.ollama):
+        for provider in (self.groq, self.gemini, self.ollama):
             try:
                 available, _ = provider.is_available()
                 if not available:

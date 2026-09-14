@@ -1,15 +1,14 @@
 """AI provider clients for product recognition.
 
-Two real providers behind a common shape:
-  * OllamaVisionProvider  - Level 1, local, offline-capable (moondream2 /
-    qwen2.5vl:3b via the Ollama HTTP API on localhost).
+Three real providers behind a common shape:
+  * GroqVisionProvider    - Level 1, cloud, ultra-fast LPU inference (qwen/qwen3.8-27b).
   * GeminiVisionProvider  - Level 2, cloud, needs GEMINI_API_KEY + internet.
+  * OllamaVisionProvider  - Level 3, local, offline-capable (moondream2 /
+    qwen2.5vl:3b via the Ollama HTTP API on localhost).
 
 Each provider's `recognize(image_bytes)` returns a RecognitionResult or raises
-so the orchestrator can fall through to the next level. Neither provider is
-required to be installed/configured for the pipeline to work: if a provider is
-unavailable it simply reports so and the chain falls through to the next level,
-ending at Level 3 (rule engine only, category = general).
+so the orchestrator can fall through to the next level. If none is available,
+the chain falls through ending at Level 4 (rule engine only, category = general).
 """
 
 from __future__ import annotations
@@ -51,6 +50,15 @@ OLLAMA_VISION_MODELS = ["qwen2.5vl:3b", "qwen2.5vl", "moondream", "moondream2"]
 # Local chat model for the RAG assistant (Level 1).
 OLLAMA_CHAT_MODEL = os.environ.get("OLLAMA_CHAT_MODEL", "llama3.2:3b")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+
+# Primary cloud AI (Groq - ultra fast LPU inference).
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
+GROQ_FALLBACK_MODEL = os.environ.get("GROQ_FALLBACK_MODEL", "qwen/qwen3.6-27b")
+GROQ_CHAT_MODEL = os.environ.get("GROQ_CHAT_MODEL", "qwen/qwen3.8-27b")
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+_GROQ_RETRYABLE_STATUS = {404, 429, 500, 503}
+_GROQ_MAX_RETRIES = 1
+_GROQ_BACKOFF_SECONDS = 0.5
 
 # "gemini-flash-latest" always points at a current flash model (survives model
 # retirements) and is the alias reachable by the provided API key — versioned
@@ -144,7 +152,9 @@ def _parse_model_json(text: str) -> dict:
 
     Tolerant of small models that truncate the closing brace: if a normal parse
     fails, retry after appending a closing '}' to the last-open object.
+    Also strips any thinking scratchpad blocks emitted by reasoning models.
     """
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     start = text.find("{")
     if start == -1:
         raise ValueError(f"No JSON object in model reply: {text[:200]!r}")
@@ -290,6 +300,176 @@ class OllamaVisionProvider:
         )
         resp.raise_for_status()
         return (resp.json().get("response") or "").strip()
+
+
+class GroqVisionProvider:
+    """Level 1: Groq cloud vision with ultra-fast LPU inference.
+    Requires GROQ_API_KEY + internet.
+    """
+
+    source = AiSource.CLOUD_GROQ
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        timeout: Optional[float] = None,
+        model: Optional[str] = None,
+        fallback_model: Optional[str] = None,
+    ):
+        self.api_key = (
+            api_key if api_key is not None else os.environ.get("GROQ_API_KEY")
+        )
+        self.model = model or GROQ_MODEL
+        self.fallback_model = fallback_model or GROQ_FALLBACK_MODEL
+        self.timeout = timeout if timeout is not None else float(
+            os.environ.get("GROQ_TIMEOUT", 15.0)
+        )
+
+    def is_available(self) -> tuple[bool, Optional[str]]:
+        return (bool(self.api_key), self.model if self.api_key else None)
+
+    def recognize(self, image_bytes: bytes) -> RecognitionResult:
+        if not self.api_key:
+            raise RuntimeError("GROQ_API_KEY not set")
+
+        b64 = base64.b64encode(_downscale_jpeg(image_bytes)).decode("ascii")
+
+        try:
+            return self._call_model(self.model, b64)
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            if status in _GROQ_RETRYABLE_STATUS and self.fallback_model != self.model:
+                return self._call_model(self.fallback_model, b64)
+            raise
+
+    def _call_model(self, model: str, image_b64: str) -> RecognitionResult:
+        url = f"{GROQ_BASE_URL}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": _RECOGNITION_PROMPT},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": 256,
+            "reasoning_effort": "none",
+        }
+        resp = httpx.post(url, json=payload, headers=headers, timeout=self.timeout)
+        resp.raise_for_status()
+        body = resp.json()
+        raw_text = body["choices"][0]["message"]["content"]
+        data = _parse_model_json(raw_text)
+        return _result_from_data(data, self.source, model)
+
+    def extract_fields(self, images: list[bytes]) -> VisionExtraction:
+        """Read structured label fields from one or more images (front+back)."""
+        if not self.api_key:
+            raise RuntimeError("GROQ_API_KEY not set")
+
+        b64s = [base64.b64encode(_downscale_jpeg(b)).decode("ascii") for b in images]
+
+        models = [self.model]
+        if self.fallback_model != self.model:
+            models.append(self.fallback_model)
+
+        last_exc: Optional[Exception] = None
+        for model in models:
+            for attempt in range(_GROQ_MAX_RETRIES):
+                try:
+                    return self._extract_call(model, b64s)
+                except httpx.HTTPStatusError as e:
+                    last_exc = e
+                    if e.response.status_code not in _GROQ_RETRYABLE_STATUS:
+                        raise
+                    time.sleep(_GROQ_BACKOFF_SECONDS * (attempt + 1))
+                except httpx.TimeoutException as e:
+                    last_exc = e
+                    time.sleep(_GROQ_BACKOFF_SECONDS)
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("Groq extraction failed with no exception captured")
+
+    def _extract_call(self, model: str, image_b64s: list[str]) -> VisionExtraction:
+        url = f"{GROQ_BASE_URL}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        content: list[dict] = [{"type": "text", "text": _EXTRACTION_PROMPT}]
+        for b64 in image_b64s:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            })
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": content}],
+            "max_tokens": 400,
+            "reasoning_effort": "none",
+        }
+        resp = httpx.post(url, json=payload, headers=headers, timeout=self.timeout)
+        if resp.status_code >= 400:
+            import logging
+            logging.getLogger("groq").warning("Groq API error %s: %s", resp.status_code, resp.text)
+        resp.raise_for_status()
+        raw_text = resp.json()["choices"][0]["message"]["content"]
+        data = _parse_model_json(raw_text)
+        return _extraction_from_data(data, self.source, model)
+
+    def chat(self, system_prompt: str, user_prompt: str) -> str:
+        """Generate a plain-text answer via Groq, with model fallback."""
+        if not self.api_key:
+            raise RuntimeError("GROQ_API_KEY not set")
+
+        models = [self.model]
+        if self.fallback_model != self.model:
+            models.append(self.fallback_model)
+
+        last_exc: Optional[Exception] = None
+        for model in models:
+            try:
+                return self._chat_call(model, system_prompt, user_prompt)
+            except httpx.HTTPStatusError as e:
+                last_exc = e
+                if e.response.status_code not in _GROQ_RETRYABLE_STATUS:
+                    raise
+            except httpx.TimeoutException as e:
+                last_exc = e
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("Groq chat failed with no exception captured")
+
+    def _chat_call(self, model: str, system_prompt: str, user_prompt: str) -> str:
+        url = f"{GROQ_BASE_URL}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": 350,
+            "reasoning_effort": "none",
+        }
+        resp = httpx.post(url, json=payload, headers=headers, timeout=self.timeout)
+        resp.raise_for_status()
+        raw_text = resp.json()["choices"][0]["message"]["content"]
+        clean_text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
+        return clean_text
 
 
 class GeminiVisionProvider:

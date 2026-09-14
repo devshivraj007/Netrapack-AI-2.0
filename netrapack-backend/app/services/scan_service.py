@@ -49,6 +49,7 @@ _recognizer = ProductRecognizer()
 
 def _ai_level_label(source: AiSource) -> str:
     return {
+        AiSource.CLOUD_GROQ: "cloud_ai",
         AiSource.LOCAL_OLLAMA: "local_ai",
         AiSource.CLOUD_GEMINI: "cloud_ai",
         AiSource.NONE: "rule_engine_only",

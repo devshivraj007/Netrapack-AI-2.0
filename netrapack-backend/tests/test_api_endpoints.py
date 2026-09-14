@@ -123,7 +123,11 @@ def test_chat_disclaimer_and_tier():
     so this is fast and deterministic). The live 3-tier path is exercised
     separately in the manual verification script."""
     from app.ai.chatbot import ChatContext, ComplianceChatbot
-    from app.ai.providers import GeminiVisionProvider, OllamaVisionProvider
+    from app.ai.providers import GeminiVisionProvider, GroqVisionProvider, OllamaVisionProvider
+
+    class _DeadGroq(GroqVisionProvider):
+        def is_available(self):
+            return (False, None)
 
     class _DeadOllama(OllamaVisionProvider):
         def chat_available(self):
@@ -133,7 +137,7 @@ def test_chat_disclaimer_and_tier():
         def is_available(self):
             return (False, None)
 
-    bot = ComplianceChatbot(ollama=_DeadOllama(), gemini=_DeadGemini())
+    bot = ComplianceChatbot(groq=_DeadGroq(), ollama=_DeadOllama(), gemini=_DeadGemini())
     ctx = ChatContext(
         scan_id="pt-chat-det",
         verdict={"overall_status": "non_compliant", "rules_passed": 5,

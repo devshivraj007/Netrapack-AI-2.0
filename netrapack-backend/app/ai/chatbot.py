@@ -1,9 +1,10 @@
 """Plain-language RAG compliance chatbot (Day 4).
 
-Three-tier circuit breaker:
-    Level 1: local Ollama (llama3.2:3b)   - offline, instant
-    Level 2: Gemini cloud (gemini-3.6-flash) - needs key + internet
-    Level 3: deterministic rule-engine answer - always works, no AI
+Four-tier circuit breaker:
+    Level 1: Groq cloud (qwen/qwen3.8-27b)    - ultra-fast LPU inference
+    Level 2: Gemini cloud (gemini-3.6-flash)  - secondary cloud AI fallback
+    Level 3: local Ollama (llama3.2:3b)       - offline edge assistant
+    Level 4: deterministic rule-engine answer - always works, no AI
 
 RAG context injection: for every query we retrieve the scan's verdict JSON
 (extracted fields, declared values, detected violations) and the relevant LMPC
@@ -22,7 +23,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .providers import GeminiVisionProvider, OllamaVisionProvider
+from .providers import GeminiVisionProvider, GroqVisionProvider, OllamaVisionProvider
 from .types import AiSource
 
 # Exact disclaimer required on every response payload.
@@ -81,12 +82,14 @@ class ChatContext:
 
 
 class ComplianceChatbot:
-    """3-tier RAG chatbot."""
+    """4-tier RAG chatbot."""
 
-    def __init__(self, ollama: Optional[OllamaVisionProvider] = None,
-                 gemini: Optional[GeminiVisionProvider] = None):
-        self.ollama = ollama or OllamaVisionProvider()
+    def __init__(self, groq: Optional[GroqVisionProvider] = None,
+                 gemini: Optional[GeminiVisionProvider] = None,
+                 ollama: Optional[OllamaVisionProvider] = None):
+        self.groq = groq or GroqVisionProvider()
         self.gemini = gemini or GeminiVisionProvider()
+        self.ollama = ollama or OllamaVisionProvider()
 
     def answer(self, question: str, context: ChatContext) -> dict[str, Any]:
         """Return {answer, ai_source, model, level} with disclaimer appended."""
@@ -96,17 +99,17 @@ class ComplianceChatbot:
             "Answer using only the scan data and rule text above."
         )
 
-        # Level 1: local Ollama chat.
+        # Level 1: Groq cloud chat (primary).
         try:
-            available, model = self.ollama.chat_available()
+            available, model = self.groq.is_available()
             if available:
-                text = self.ollama.chat(SYSTEM_PROMPT, user_prompt)
+                text = self.groq.chat(SYSTEM_PROMPT, user_prompt)
                 if text:
-                    return self._wrap(text, AiSource.LOCAL_OLLAMA, model, "local_edge")
+                    return self._wrap(text, AiSource.CLOUD_GROQ, model, "cloud")
         except Exception:
             pass
 
-        # Level 2: Gemini cloud chat.
+        # Level 2: Gemini cloud chat (secondary fallback).
         try:
             available, model = self.gemini.is_available()
             if available:
@@ -116,7 +119,17 @@ class ComplianceChatbot:
         except Exception:
             pass
 
-        # Level 3: deterministic answer (no AI).
+        # Level 3: local Ollama chat (offline fallback).
+        try:
+            available, model = self.ollama.chat_available()
+            if available:
+                text = self.ollama.chat(SYSTEM_PROMPT, user_prompt)
+                if text:
+                    return self._wrap(text, AiSource.LOCAL_OLLAMA, model, "local_edge")
+        except Exception:
+            pass
+
+        # Level 4: deterministic answer (no AI).
         return self._wrap(self._deterministic_answer(question, context),
                           AiSource.NONE, None, "rule_engine_only")
 

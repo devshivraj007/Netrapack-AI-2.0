@@ -9,3 +9,6 @@ web-build/
 tsc_out.txt
 tsc_check.txt
 *_done.txt
+.env
+.env.local
+.env.*.local

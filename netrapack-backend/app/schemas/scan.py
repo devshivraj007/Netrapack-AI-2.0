@@ -117,7 +117,7 @@ class AiRecognition(BaseModel):
     package_size: str = "unknown"
     package_shape: str = "unknown"
     confidence: float = 0.0
-    ai_source: str = "none"  # local_ollama | cloud_gemini | none
+    ai_source: str = "none"  # cloud_groq | cloud_gemini | local_ollama | none
     model_name: Optional[str] = None
     below_confidence_threshold: bool = False
     confirmation_status: str = "ai_suggested_not_confirmed"
