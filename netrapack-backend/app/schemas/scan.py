@@ -179,6 +179,22 @@ class ReadabilityInfo(BaseModel):
     note: str = ""
 
 
+class FieldComparison(BaseModel):
+    field: str
+    reference: Optional[str]
+    declared: Optional[str]
+    status: str  # agree | mismatch | not_available
+
+
+class BarcodeVerification(BaseModel):
+    scanned_barcode: Optional[str]
+    matched: bool
+    product_code: Optional[str] = None
+    product_name: Optional[str] = None
+    comparisons: list[FieldComparison] = Field(default_factory=list)
+    note: Optional[str] = None
+
+
 class ScanVerdict(BaseModel):
     scan_id: str
     overall_status: OverallStatus
@@ -198,3 +214,6 @@ class ScanVerdict(BaseModel):
     # Advisory font-size / readability estimate (LMPC Rule 9 area). Attached to
     # photo scans automatically; None on text-only scans or when unassessable.
     readability: Optional[ReadabilityInfo] = None
+    
+    # Day 3: Cross-verification of the printed text against the barcode database
+    barcode_verification: Optional[BarcodeVerification] = None

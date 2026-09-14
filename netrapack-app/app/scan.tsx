@@ -37,8 +37,8 @@ async function downscale(uri: string): Promise<string> {
   try {
     const result = await ImageManipulator.manipulateAsync(
       uri,
-      [{ resize: { width: 1024 } }],
-      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG },
+      [{ resize: { width: 1800 } }],
+      { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
     );
     return result.uri;
   } catch {
@@ -55,6 +55,7 @@ export default function Scan() {
   const [error, setError] = useState<string | null>(null);
   const [stageIndex, setStageIndex] = useState(0);
   const [showCamera, setShowCamera] = useState(false);
+  const [barcode, setBarcode] = useState<string | null>(null);
 
   // Advance the progress message every ~1.5s while busy.
   useEffect(() => {
@@ -72,9 +73,11 @@ export default function Scan() {
     setStageIndex(0);
     try {
       const scaled = await Promise.all(photos.map(downscale));
-      const verdict = await processPhotos(scaled);
+      const verdict = await processPhotos(scaled, {
+        barcode: barcode || undefined,
+      });
       setLastVerdict(verdict);
-      router.replace("/verdict");
+      router.replace("/review-fields");
     } catch (e) {
       setError(
         (e instanceof Error ? e.message : "Scan failed") +
@@ -149,7 +152,13 @@ export default function Scan() {
     }
     return (
       <View style={{ flex: 1, backgroundColor: "#000" }}>
-        <CameraView ref={cameraRef} style={styles.fullCamera} facing="back">
+        <CameraView
+          ref={cameraRef}
+          style={styles.fullCamera}
+          facing="back"
+          barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "qr", "upc_e", "upc_a"] }}
+          onBarcodeScanned={(result) => setBarcode(result.data)}
+        >
           <View style={styles.cameraTopBar}>
             <Pressable onPress={() => setShowCamera(false)} style={styles.camCancel}>
               <Text style={styles.camCancelText}>✕ Cancel</Text>
@@ -159,6 +168,9 @@ export default function Scan() {
             </Text>
           </View>
           <View style={styles.cameraHintWrap} pointerEvents="none">
+            {barcode ? (
+              <Text style={styles.barcodeDetected}>Barcode: {barcode}</Text>
+            ) : null}
             <Text style={styles.cameraHint}>Align the label inside the frame</Text>
           </View>
           <View style={styles.captureRow}>
@@ -223,6 +235,17 @@ export default function Scan() {
 
         {/* Error message */}
         {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        {/* Barcode status in thumbnail view */}
+        {photos.length > 0 && barcode ? (
+          <View style={styles.barcodeCard}>
+            <Text style={styles.barcodeIcon}>🏷️</Text>
+            <View>
+              <Text style={styles.barcodeLabel}>Barcode Detected</Text>
+              <Text style={styles.barcodeValue}>{barcode}</Text>
+            </View>
+          </View>
+        ) : null}
 
         {/* Add photo actions */}
         {canAddMore ? (
@@ -439,4 +462,30 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     backgroundColor: colors.white,
   },
+
+  // Barcode styles
+  barcodeDetected: {
+    color: colors.white,
+    backgroundColor: colors.teal,
+    fontWeight: "800",
+    fontSize: font.small,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+    marginBottom: spacing.xs,
+    overflow: "hidden",
+  },
+  barcodeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.teal,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  barcodeIcon: { fontSize: 24 },
+  barcodeLabel: { fontSize: font.label, fontWeight: "700", color: colors.tealDark },
+  barcodeValue: { fontSize: font.body, fontWeight: "800", color: colors.text, marginTop: 2 },
 });

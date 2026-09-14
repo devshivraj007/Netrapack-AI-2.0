@@ -30,14 +30,32 @@ export type ReadabilityInfo = {
   note?: string;
 };
 
+export type FieldComparison = {
+  field: string;
+  reference?: string | null;
+  declared?: string | null;
+  status: "agree" | "mismatch" | "not_available";
+};
+
+export type BarcodeVerification = {
+  scanned_barcode?: string | null;
+  matched: boolean;
+  product_code?: string | null;
+  product_name?: string | null;
+  comparisons: FieldComparison[];
+  note?: string | null;
+};
+
 export type ScanVerdict = {
   scan_id: string;
   overall_status: string;
   rules_passed: number;
   rules_checked: number;
   violations: Violation[];
+  parsed_fields?: Record<string, any>;
   vision_extraction?: VisionExtraction | null;
   readability?: ReadabilityInfo | null;
+  barcode_verification?: BarcodeVerification | null;
   ai_recognition?: {
     category?: string;
     effective_category?: string;
@@ -133,6 +151,34 @@ export async function processPhoto(
   return processPhotos([photoUri], opts);
 }
 
+/**
+ * Send typed/edited text fields to the rule engine.
+ * Matches the backend contract: POST /scan/process
+ */
+export async function processTextScan(req: {
+  scan_id: string;
+  barcode?: string;
+  mrp_declaration?: string;
+  net_quantity_declaration?: string;
+  unit_sale_price_declaration?: string;
+  manufacturing_date_declaration?: string;
+  expiry_date_declaration?: string;
+  fssai_license_number?: string;
+  manufacturer_name_address?: string;
+  country_of_origin_declaration?: string;
+  consumer_care_details?: string;
+}): Promise<ScanVerdict> {
+  const res = await fetch(`${API_BASE_URL}/scan/process`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    throw new Error(`Text scan processing failed (HTTP ${res.status})`);
+  }
+  return (await res.json()) as ScanVerdict;
+}
+
 /** Officer: confirm/override the AI-suggested category. */
 export async function confirmCategory(
   scanId: string,
@@ -166,7 +212,7 @@ export async function generateNotice(
     productBarcode?: string;
   },
   token?: string,
-): Promise<{ status: string; file_name?: string; evidence_sha256?: string }> {
+): Promise<{ status: string; file_name: string; evidence_sha256: string }> {
   const res = await fetch(`${API_BASE_URL}/officer/generate-notice`, {
     method: "POST",
     headers: {

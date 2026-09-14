@@ -7,6 +7,7 @@ import {
   TextInput,
   Alert,
   Linking,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Header } from "../src/components/Header";
@@ -63,7 +64,7 @@ export default function Verdict() {
   const [confirmedCategory, setConfirmedCategory] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [working, setWorking] = useState(false);
-  const [noticeInfo, setNoticeInfo] = useState<string | null>(null);
+  const [noticeInfo, setNoticeInfo] = useState<{ filename: string; hash: string } | null>(null);
   const [shopName, setShopName] = useState("");
 
   const st = useMemo(() => statusStyle(verdict?.overall_status), [verdict]);
@@ -128,15 +129,11 @@ export default function Verdict() {
           shopName: shopName.trim() || "Unspecified establishment",
           inspectorId: session.get().userId ?? "officer",
           gpsCoordinates: "0.0,0.0",
-          productBarcode: undefined,
+          productBarcode: verdict!.barcode_verification?.scanned_barcode ?? undefined,
         },
         session.get().token ?? undefined,
       );
-      setNoticeInfo(
-        `Notice generated: ${res.file_name ?? "(saved on server)"}\nEvidence hash: ${
-          (res.evidence_sha256 ?? "").slice(0, 16)
-        }…`,
-      );
+      setNoticeInfo({ filename: res.file_name, hash: res.evidence_sha256 });
     } catch (e) {
       Alert.alert("Notice failed", e instanceof Error ? e.message : "Error");
     } finally {
@@ -174,6 +171,36 @@ export default function Verdict() {
           <Field label="Country of Origin" value={ve.country_of_origin} />
           <Field label="Manufacturer" value={ve.manufacturer_details} />
         </View>
+
+        {/* Registry Cross-Check */}
+        {verdict.barcode_verification?.matched ? (
+          <View style={styles.registryWrap}>
+            <Text style={styles.reportTitle}>REGISTRY CROSS-CHECK</Text>
+            <Text style={styles.registrySub}>
+              Barcode {verdict.barcode_verification.scanned_barcode} verified as{" "}
+              <Text style={{ fontWeight: "800" }}>{verdict.barcode_verification.product_name}</Text>.
+            </Text>
+            {verdict.barcode_verification.comparisons.map((c, i) => {
+              if (c.status === "not_available") return null;
+              const isMatch = c.status === "agree";
+              return (
+                <View key={i} style={styles.registryRow}>
+                  <Text style={styles.registryIcon}>{isMatch ? "✅" : "❌"}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.registryLabel, !isMatch && { color: colors.red }]}>
+                      {c.field.toUpperCase().replace(/_/g, " ")}
+                    </Text>
+                    <Text style={styles.registryValue}>
+                      {isMatch
+                        ? `Matches registry: ${c.reference}`
+                        : `MISMATCH! Printed '${c.declared}' but registry expects '${c.reference}'`}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
 
         {/* Health / Nutrition tab — food & beverage only */}
         {showHealth ? (
@@ -370,7 +397,20 @@ export default function Verdict() {
                   style={styles.input}
                 />
                 <Button label="GENERATE SECTION 36 NOTICE" variant="danger" onPress={doGenerateNotice} loading={working} />
-                {noticeInfo ? <Text style={styles.notice}>{noticeInfo}</Text> : null}
+                {noticeInfo ? (
+                  <View style={styles.noticeCard}>
+                    <Text style={styles.noticeText}>
+                      ✓ Notice generated successfully
+                    </Text>
+                    <Text style={styles.noticeHash}>
+                      Evidence Hash: {noticeInfo.hash.slice(0, 16)}…
+                    </Text>
+                    <Button 
+                      label="📄  DOWNLOAD / OPEN PDF" 
+                      onPress={() => openExternal(`http://10.86.20.33:8000/api/v1/officer/notice/${noticeInfo.filename}`, "Download PDF")} 
+                    />
+                  </View>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -438,6 +478,33 @@ const styles = StyleSheet.create({
   fieldValue: { fontSize: font.h3, color: colors.text, fontWeight: "700", marginTop: 2 },
   fieldMissing: { color: colors.textMuted, fontStyle: "italic", fontWeight: "600" },
   ambiguous: { color: colors.amber, fontSize: font.small, fontWeight: "700", marginTop: spacing.xs },
+
+  registryWrap: {
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    borderColor: colors.navyDark,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  registrySub: {
+    fontSize: font.small,
+    color: colors.textMuted,
+    lineHeight: 18,
+    marginBottom: spacing.xs,
+  },
+  registryRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: colors.bg,
+    padding: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  registryIcon: { fontSize: 18, marginRight: spacing.sm, marginTop: 2 },
+  registryLabel: { fontSize: font.label, fontWeight: "800", color: colors.navy },
+  registryValue: { fontSize: font.body, color: colors.text, marginTop: 2 },
 
   healthWrap: {
     backgroundColor: colors.card,
@@ -547,14 +614,22 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.white,
   },
-  notice: {
-    color: colors.tealDark,
+  noticeCard: {
     backgroundColor: colors.tealSoft,
     borderColor: colors.teal,
     borderWidth: 1,
     borderRadius: radius.sm,
     padding: spacing.md,
+    gap: spacing.sm,
+  },
+  noticeText: {
+    color: colors.tealDark,
+    fontSize: font.body,
+    fontWeight: "800",
+  },
+  noticeHash: {
+    color: colors.textMuted,
     fontSize: font.small,
-    fontWeight: "700",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
   },
 });

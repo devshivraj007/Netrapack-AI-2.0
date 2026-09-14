@@ -33,6 +33,7 @@ from app.ai.types import AiSource, RecognitionResult
 from app.db import repository
 from app.ocr.pipeline import run_ocr_pipeline
 from app.rule_engine.engine import RuleEngine
+from app.services import barcode_verify
 from app.schemas.scan import (
     AiRecognition,
     OcrInfo,
@@ -161,6 +162,10 @@ def process_text_scan(req: ScanRequest) -> ScanVerdict:
     """
     start = time.perf_counter()
     verdict = _engine.evaluate(req, product_category="general")
+    
+    if req.barcode:
+        verdict.barcode_verification = barcode_verify.cross_verify(req.barcode, req.model_dump())
+        
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     verdict.metadata = ScanMetadata(
         processing_ms=round(elapsed_ms, 2),
@@ -286,6 +291,10 @@ def process_photo_scan_multi(scan_id: str, images: list[bytes],
     # --- Rule engine (category gates the FSSAI check) ------------------------
     req = ScanRequest(scan_id=scan_id, barcode=barcode, **fields)
     verdict = _engine.evaluate(req, product_category=rec.effective_category.value)
+    
+    if barcode:
+        verdict.barcode_verification = barcode_verify.cross_verify(barcode, req.model_dump())
+        
     verdict.ai_recognition = ai_recognition
     verdict.ocr = ocr_info
     verdict.vision_extraction = vision_payload

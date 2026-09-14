@@ -17,7 +17,10 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi import Depends
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+import os
+from pathlib import Path
 
 from app.auth.deps import require_officer
 from app.db import repository
@@ -98,3 +101,24 @@ def generate_notice(req: GenerateNoticeRequest,
         confirmed_category=confirmation.get("confirmed_category"),
     )
     return {"status": "generated", **result}
+
+
+_NOTICES_DIR = Path(os.environ.get("NETRAPACK_NOTICES_DIR",
+                                   str(Path(__file__).resolve().parents[3]
+                                       / "storage" / "notices")))
+
+@router.get("/notice/{file_name}", summary="Download a generated notice PDF")
+def download_notice(file_name: str):
+    # Security: prevent path traversal
+    if ".." in file_name or "/" in file_name or "\\" in file_name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    file_path = _NOTICES_DIR / file_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Notice PDF not found")
+        
+    return FileResponse(
+        path=file_path,
+        filename=file_name,
+        media_type="application/pdf"
+    )

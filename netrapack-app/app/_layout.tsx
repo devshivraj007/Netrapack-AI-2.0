@@ -14,7 +14,6 @@ export default function RootLayout() {
           // Smooth cross-fade between screens.
           animation: "fade",
         }}
-        initialRouteName="welcome"
       />
     </SafeAreaProvider>
   );
