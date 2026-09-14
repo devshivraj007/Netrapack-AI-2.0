@@ -18,6 +18,8 @@ export type VisionExtraction = {
   fssai_license_number?: string | null;
   manufacturer_details?: string | null;
   country_of_origin?: string | null;
+  consumer_care_details?: string | null;
+  unclear_fields?: string[];
 };
 
 export type ReadabilityInfo = {
@@ -44,6 +46,9 @@ export type BarcodeVerification = {
   product_name?: string | null;
   comparisons: FieldComparison[];
   note?: string | null;
+  gs1_prefix?: string | null;
+  gs1_country?: string | null;
+  origin_matches_barcode?: boolean | null;
 };
 
 export type ScanVerdict = {
@@ -68,6 +73,8 @@ export type ScanVerdict = {
     ai_level?: string;
     connectivity_state?: string;
     extraction_source?: string;
+    online_offline?: string;
+    image_hash?: string | null;
   } | null;
 };
 
@@ -84,6 +91,28 @@ export type LoginResult = {
 };
 
 /**
+ * Safe fetch wrapper that intercepts React Native "Network request failed"
+ * and produces an actionable error message with IP and Hotspot guidance.
+ */
+async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes("Network request failed") ||
+      msg.includes("Failed to fetch") ||
+      msg.includes("NetworkError")
+    ) {
+      throw new Error(
+        `Cannot reach backend server at:\n${API_BASE_URL}\n\nPlease check:\n1. Mobile Hotspot 'LAPTOP-9DFJJCB4 6739' is active on PC.\n2. Your phone is connected to this Hotspot.\n3. Backend is running on port 8000.`,
+      );
+    }
+    throw err;
+  }
+}
+
+/**
  * Authenticate against the backend and return a real session token.
  * Contract matches app/api/auth_routes.py: POST /auth/login {username, password}.
  */
@@ -91,7 +120,7 @@ export async function loginRequest(
   username: string,
   password: string,
 ): Promise<LoginResult> {
-  const res = await fetch(`${API_BASE_URL}/auth/login`, {
+  const res = await safeFetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -129,7 +158,7 @@ export async function processPhotos(
     } as unknown as Blob);
   }
 
-  const res = await fetch(`${API_BASE_URL}/scan/process-photo`, {
+  const res = await safeFetch(`${API_BASE_URL}/scan/process-photo`, {
     method: "POST",
     body: form,
     headers: { Accept: "application/json" },
@@ -158,6 +187,7 @@ export async function processPhoto(
 export async function processTextScan(req: {
   scan_id: string;
   barcode?: string;
+  product_category?: string;
   mrp_declaration?: string;
   net_quantity_declaration?: string;
   unit_sale_price_declaration?: string;
@@ -168,7 +198,7 @@ export async function processTextScan(req: {
   country_of_origin_declaration?: string;
   consumer_care_details?: string;
 }): Promise<ScanVerdict> {
-  const res = await fetch(`${API_BASE_URL}/scan/process`, {
+  const res = await safeFetch(`${API_BASE_URL}/scan/process`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(req),
@@ -186,7 +216,7 @@ export async function confirmCategory(
   inspectorId: string,
   token?: string,
 ): Promise<{ status: string; confirmed_category: string }> {
-  const res = await fetch(`${API_BASE_URL}/officer/confirm-category`, {
+  const res = await safeFetch(`${API_BASE_URL}/officer/confirm-category`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -213,7 +243,7 @@ export async function generateNotice(
   },
   token?: string,
 ): Promise<{ status: string; file_name: string; evidence_sha256: string }> {
-  const res = await fetch(`${API_BASE_URL}/officer/generate-notice`, {
+  const res = await safeFetch(`${API_BASE_URL}/officer/generate-notice`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -249,13 +279,14 @@ export type ChatAnswer = {
  * Contract matches app/api/chat_routes.py: POST /chat/query {scan_id, question}.
  */
 export async function chatQuery(
-  scanId: string,
+  scanId: string | undefined,
   question: string,
 ): Promise<ChatAnswer> {
-  const res = await fetch(`${API_BASE_URL}/chat/query`, {
+  const sid = (scanId || "general").trim();
+  const res = await safeFetch(`${API_BASE_URL}/chat/query`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ scan_id: scanId, question }),
+    body: JSON.stringify({ scan_id: sid, question }),
   });
   if (res.status === 404) {
     throw new Error("This scan was not found on the server. Try scanning again.");
@@ -289,7 +320,7 @@ export async function searchReports(
   if (opts.status) params.set("status", opts.status);
   params.set("limit", String(opts.limit ?? 50));
 
-  const res = await fetch(`${API_BASE_URL}/admin/reports?${params.toString()}`, {
+  const res = await safeFetch(`${API_BASE_URL}/admin/reports?${params.toString()}`, {
     headers: {
       Accept: "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

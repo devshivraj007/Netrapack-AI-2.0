@@ -24,6 +24,8 @@ from .providers import GeminiVisionProvider, GroqVisionProvider, OllamaVisionPro
 from .types import (
     AiSource,
     CONFIDENCE_THRESHOLD,
+    PackageShape,
+    PackageSize,
     ProductCategory,
     RecognitionResult,
     VisionExtraction,
@@ -40,6 +42,145 @@ def detect_online() -> bool:
         return False
 
 
+CORE_MANDATORY_FIELDS = (
+    "mrp",
+    "net_quantity",
+    "mfd_pkd_date",
+    "manufacturer_details",
+    "consumer_care_details",
+    "country_of_origin",
+)
+
+
+def _count_core_fields(extraction: Optional[VisionExtraction]) -> int:
+    if not extraction:
+        return 0
+    count = 0
+    if extraction.mrp is not None or (extraction.mrp_all_prices and len(extraction.mrp_all_prices) > 0):
+        count += 1
+    if extraction.net_quantity:
+        count += 1
+    if extraction.mfd_pkd_date:
+        count += 1
+    if extraction.manufacturer_details:
+        count += 1
+    if extraction.consumer_care_details:
+        count += 1
+    if extraction.country_of_origin:
+        count += 1
+    return count
+
+
+def _get_unclear_or_missing_core(extraction: Optional[VisionExtraction]) -> list[str]:
+    """Return a list of core mandatory fields that are either missing or flagged unclear/ambiguous."""
+    if not extraction:
+        return list(CORE_MANDATORY_FIELDS)
+    
+    needed = []
+    unclear_set = set(extraction.unclear_fields or [])
+    
+    # 1. MRP: missing, flagged unclear, or ambiguous
+    if extraction.mrp is None and not (extraction.mrp_all_prices and len(extraction.mrp_all_prices) > 0):
+        needed.append("mrp")
+    elif "mrp" in unclear_set or extraction.mrp_is_ambiguous:
+        needed.append("mrp")
+        
+    # 2. Net quantity
+    if not extraction.net_quantity or "net_quantity" in unclear_set:
+        needed.append("net_quantity")
+        
+    # 3. Mfd / pkd date
+    if not extraction.mfd_pkd_date or "mfd_pkd_date" in unclear_set:
+        needed.append("mfd_pkd_date")
+        
+    # 4. Manufacturer details
+    if not extraction.manufacturer_details or "manufacturer_details" in unclear_set:
+        needed.append("manufacturer_details")
+        
+    # 5. Consumer care details
+    if not extraction.consumer_care_details or "consumer_care_details" in unclear_set:
+        needed.append("consumer_care_details")
+        
+    # 6. Country of origin
+    if not extraction.country_of_origin or "country_of_origin" in unclear_set:
+        needed.append("country_of_origin")
+        
+    return needed
+
+
+def _merge_extractions(primary: VisionExtraction, secondary: VisionExtraction) -> VisionExtraction:
+    """Intelligently merge two extraction attempts:
+    Prioritizes clear, high-confidence readings over unclear or missing ones.
+    If a secondary attempt clarifies a previously unclear field, the unclear flag is cleared.
+    """
+    primary_unclear = set(primary.unclear_fields or [])
+    secondary_unclear = set(secondary.unclear_fields or [])
+    
+    def pick_best(field_name: str, p_val, s_val):
+        p_is_unclear = field_name in primary_unclear
+        s_is_unclear = field_name in secondary_unclear
+        p_has = p_val is not None and p_val != ""
+        s_has = s_val is not None and s_val != ""
+        
+        # If primary has value and is clear, keep primary
+        if p_has and not p_is_unclear:
+            return p_val, False
+        # If secondary has value and is clear, adopt secondary (clarified!)
+        if s_has and not s_is_unclear:
+            return s_val, False
+        # If primary has value (even if unclear), keep primary's reading
+        if p_has:
+            return p_val, p_is_unclear
+        # Otherwise fallback to secondary
+        if s_has:
+            return s_val, s_is_unclear
+        return None, False
+
+    mrp_val, mrp_unclear = pick_best("mrp", primary.mrp, secondary.mrp)
+    qty_val, qty_unclear = pick_best("net_quantity", primary.net_quantity, secondary.net_quantity)
+    usp_val, usp_unclear = pick_best("unit_sale_price", primary.unit_sale_price, secondary.unit_sale_price)
+    date_val, date_unclear = pick_best("mfd_pkd_date", primary.mfd_pkd_date, secondary.mfd_pkd_date)
+    exp_val, exp_unclear = pick_best("expiry_date", primary.expiry_date, secondary.expiry_date)
+    fssai_val, fssai_unclear = pick_best("fssai_license_number", primary.fssai_license_number, secondary.fssai_license_number)
+    mfr_val, mfr_unclear = pick_best("manufacturer_details", primary.manufacturer_details, secondary.manufacturer_details)
+    origin_val, origin_unclear = pick_best("country_of_origin", primary.country_of_origin, secondary.country_of_origin)
+    care_val, care_unclear = pick_best("consumer_care_details", primary.consumer_care_details, secondary.consumer_care_details)
+    
+    final_unclear = []
+    if mrp_unclear: final_unclear.append("mrp")
+    if qty_unclear: final_unclear.append("net_quantity")
+    if usp_unclear: final_unclear.append("unit_sale_price")
+    if date_unclear: final_unclear.append("mfd_pkd_date")
+    if exp_unclear: final_unclear.append("expiry_date")
+    if fssai_unclear: final_unclear.append("fssai_license_number")
+    if mfr_unclear: final_unclear.append("manufacturer_details")
+    if origin_unclear: final_unclear.append("country_of_origin")
+    if care_unclear: final_unclear.append("consumer_care_details")
+
+    # Ambiguity flag: if secondary resolved ambiguous MRP with a clear single MRP, resolve it
+    mrp_ambig = primary.mrp_is_ambiguous
+    if mrp_ambig and secondary.mrp is not None and not secondary.mrp_is_ambiguous:
+        mrp_ambig = False
+
+    return VisionExtraction(
+        mrp=mrp_val,
+        mrp_all_prices=primary.mrp_all_prices or secondary.mrp_all_prices,
+        mrp_is_ambiguous=mrp_ambig,
+        net_quantity=qty_val,
+        unit_sale_price=usp_val,
+        mfd_pkd_date=date_val,
+        expiry_date=exp_val,
+        fssai_license_number=fssai_val,
+        manufacturer_details=mfr_val,
+        country_of_origin=origin_val,
+        consumer_care_details=care_val,
+        category=primary.category or secondary.category,
+        unclear_fields=final_unclear,
+        ai_source=primary.ai_source,
+        model_name=f"{primary.model_name}+{secondary.model_name}" if secondary.model_name and secondary.model_name != primary.model_name else primary.model_name,
+    )
+
+
 class ProductRecognizer:
     def __init__(
         self,
@@ -52,31 +193,28 @@ class ProductRecognizer:
         self.ollama = ollama or OllamaVisionProvider()
 
     def recognize(self, image_bytes: bytes) -> RecognitionResult:
-        # Level 1: Groq cloud (primary).
-        result = self._try_provider(self.groq, image_bytes)
-        # Level 2: Gemini cloud (secondary fallback).
-        if result is None:
-            result = self._try_provider(self.gemini, image_bytes)
-        # Level 3: local Ollama (offline fallback).
-        if result is None:
-            result = self._try_provider(self.ollama, image_bytes)
-        # Level 4: no AI available -> general, standard checks only.
-        if result is None:
-            return RecognitionResult(
-                category=ProductCategory.GENERAL,
-                ai_source=AiSource.NONE,
-                model_name=None,
-                confidence=0.0,
-                below_confidence_threshold=False,
-                note=(
-                    "No AI available (cloud and local both unavailable). "
-                    "Falling back to standard Legal Metrology checks only; "
-                    "category-specific (FSSAI) checks are skipped."
-                ),
-            )
+        """Run product recognition through the 4-tier fallback chain:
+        Groq -> Gemini -> Ollama -> Level 4 (rule engine only, category = general).
+        """
+        for provider in (self.groq, self.gemini, self.ollama):
+            res = self._try_provider(provider, image_bytes)
+            if res is not None:
+                return self._apply_confidence_gate(res)
 
-        # Apply the confidence gate to whichever AI answered.
-        return self._apply_confidence_gate(result)
+        return RecognitionResult(
+            category=ProductCategory.GENERAL,
+            package_size=PackageSize.UNKNOWN,
+            package_shape=PackageShape.UNKNOWN,
+            confidence=0.0,
+            ai_source=AiSource.NONE,
+            model_name=None,
+            below_confidence_threshold=True,
+            confirmation_status="autonomous_rule_engine",
+            note=(
+                "No cloud AI provider reached; defaulted autonomously to 'general' category "
+                "with standard statutory compliance checks applied."
+            ),
+        )
 
     def _try_provider(self, provider, image_bytes: bytes) -> Optional[RecognitionResult]:
         try:
@@ -85,36 +223,92 @@ class ProductRecognizer:
                 return None
             return provider.recognize(image_bytes)
         except Exception:
-            # Any failure (timeout, bad response, network) -> fall through.
             return None
 
     def extract_fields(self, images: list[bytes]) -> Optional[VisionExtraction]:
-        """Vision structured extraction with the same 4-tier fallback:
-        Groq -> Gemini -> Ollama -> None (caller falls back to OCR).
+        """Vision structured extraction with autonomous multi-pass accuracy maximization.
+
+        Pipeline:
+        1. Primary Extraction: Attempt with primary available provider on the provided images.
+        2. Multi-Image Pass: If multiple images were uploaded (e.g. front, back, stamped flap)
+           and any core mandatory field is unclear or missing, inspect individual images at
+           full dedicated resolution to clarify faint ink stamps / small print.
+        3. Cross-Provider Fallback: If core mandatory fields remain unclear or missing,
+           automatically retry with the next provider in the chain (capped at 1 retry).
+        4. Intelligent Merge: Merges clearer readings into the final extraction, clearing
+           unclear flags whenever an improved reading is found.
         """
-        for provider in (self.groq, self.gemini, self.ollama):
+        providers = [self.groq, self.gemini, self.ollama]
+        current_result: Optional[VisionExtraction] = None
+        active_provider = None
+        active_provider_idx = -1
+
+        # 1. Attempt primary extraction
+        for idx, provider in enumerate(providers):
             try:
                 available, _ = provider.is_available()
                 if not available:
                     continue
-                return provider.extract_fields(images)
+                current_result = provider.extract_fields(images)
+                active_provider = provider
+                active_provider_idx = idx
+                break
             except Exception:
                 continue
-        return None
+
+        if current_result is None:
+            return None
+
+        # Check if all core mandatory fields are clear and present
+        unclear_or_missing = _get_unclear_or_missing_core(current_result)
+        if not unclear_or_missing:
+            return current_result
+
+        # 2. Targeted Inspection of the detail/stamp panel (capped at 1 to conserve token budget)
+        if len(images) > 1 and active_provider is not None:
+            try:
+                single_res = active_provider.extract_fields([images[-1]])
+                if single_res:
+                    current_result = _merge_extractions(current_result, single_res)
+                    unclear_or_missing = _get_unclear_or_missing_core(current_result)
+            except Exception:
+                pass
+
+        # If all core fields are now clear and found, return immediately
+        if not unclear_or_missing:
+            return current_result
+
+        # 3. Cross-Provider Retry (if fields are still unclear or missing)
+        for idx in range(active_provider_idx + 1, len(providers)):
+            provider = providers[idx]
+            try:
+                available, _ = provider.is_available()
+                if not available:
+                    continue
+                second_result = provider.extract_fields(images)
+                if second_result:
+                    current_result = _merge_extractions(current_result, second_result)
+                    break
+            except Exception:
+                continue
+
+        return current_result
 
     def _apply_confidence_gate(self, result: RecognitionResult) -> RecognitionResult:
         if result.confidence < CONFIDENCE_THRESHOLD:
             result.below_confidence_threshold = True
+            result.confirmation_status = "autonomous_ai_general"
             result.note = (
                 f"Confidence {result.confidence:.0%} is below the "
-                f"{CONFIDENCE_THRESHOLD:.0%} threshold; treating as 'general' "
-                "and running standard checks only (no category-specific checks)."
+                f"{CONFIDENCE_THRESHOLD:.0%} threshold; evaluated autonomously as 'general' "
+                "with standard mandatory compliance rules applied."
             )
         else:
             result.below_confidence_threshold = False
+            result.confirmation_status = "autonomous_ai_verified"
             result.note = (
-                f"AI-suggested category '{result.category.value}' "
-                f"(confidence {result.confidence:.0%}). Not yet confirmed - an "
-                "officer must confirm or change this before official use."
+                f"Autonomous AI verification: identified category '{result.category.value}' "
+                f"with {result.confidence:.0%} confidence."
             )
         return result
+

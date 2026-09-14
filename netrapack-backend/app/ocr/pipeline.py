@@ -21,6 +21,7 @@ import numpy as np
 from . import cleansing
 from .field_extractor import extract_fields
 from .image_prep import GLARE_RETAKE_THRESHOLD, prepare_image
+from .paddle_reader import paddle_available, read_words_paddle
 from .reader import read_words, tesseract_available
 from .spatial import group_text
 
@@ -55,10 +56,12 @@ def decode_image(image_bytes: bytes) -> Optional[np.ndarray]:
 
 
 def run_ocr_pipeline(image_bytes: bytes) -> OcrPipelineResult:
-    if not tesseract_available():
+    has_paddle = paddle_available()
+    has_tess = tesseract_available()
+    if not has_paddle and not has_tess:
         return OcrPipelineResult(
             ok=False,
-            error="Tesseract OCR binary not found. Set TESSERACT_CMD or install it.",
+            error="No OCR engine available (PaddleOCR or Tesseract required).",
         )
 
     bgr = decode_image(image_bytes)
@@ -83,12 +86,14 @@ def run_ocr_pipeline(image_bytes: bytes) -> OcrPipelineResult:
             deskew_angle_deg=prepared.deskew_angle_deg,
         )
 
-    # Otherwise, run OCR and decide the retake based on whether text was
-    # actually recoverable - not on a raw glare pixel count. Glossy retail
-    # packaging often has moderate glare yet reads fine; we should not throw
-    # those away. We only demand a retake when glare is elevated AND OCR came
-    # back with too little usable content (few words / very low confidence).
-    ocr = read_words(prepared.image)
+    # Run OCR: prefer PaddleOCR (DBNet + SVTR, superior on dot-matrix/stamps/curved packs),
+    # fall back to Tesseract if Paddle produces no words or is unavailable.
+    if has_paddle:
+        ocr = read_words_paddle(prepared.image)
+        if len(ocr.words) == 0 and has_tess:
+            ocr = read_words(prepared.image)
+    else:
+        ocr = read_words(prepared.image)
 
     glare_elevated = prepared.glare.glare_fraction > GLARE_RETAKE_THRESHOLD
     poor_read = len(ocr.words) < _MIN_USABLE_WORDS or ocr.mean_conf < _MIN_USABLE_CONF

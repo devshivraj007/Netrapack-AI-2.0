@@ -35,23 +35,32 @@ export default function ReviewFields() {
     consumer_care_details: "",
   });
 
+  function cleanVal(raw?: any): string {
+    if (raw == null) return "";
+    const s = String(raw).trim();
+    if (/^(not\s*declared|none|null|undefined|unclear)$/i.test(s)) {
+      return "";
+    }
+    return s;
+  }
+
   useEffect(() => {
     if (!verdict) {
       router.replace("/");
       return;
     }
-    // Populate form with the initial raw inputs that were just extracted by the AI
     const p = verdict.parsed_fields || {};
+    const v = verdict.vision_extraction || {};
     setFields({
-      mrp_declaration: p.mrp_declaration?.raw_input || "",
-      net_quantity_declaration: p.net_quantity_declaration?.raw_input || "",
-      unit_sale_price_declaration: p.unit_sale_price_declaration?.raw_input || "",
-      manufacturing_date_declaration: p.manufacturing_date_declaration?.raw_input || "",
-      expiry_date_declaration: p.expiry_date_declaration?.raw_input || "",
-      fssai_license_number: p.fssai_license_number?.raw_input || "",
-      manufacturer_name_address: p.manufacturer_name_address?.raw_input || "",
-      country_of_origin_declaration: p.country_of_origin_declaration?.raw_input || "",
-      consumer_care_details: p.consumer_care_details?.raw_input || "",
+      mrp_declaration: cleanVal(p.mrp?.raw_input) || (v.mrp != null ? `₹${v.mrp}` : "") || cleanVal(p.mrp_declaration?.raw_input),
+      net_quantity_declaration: cleanVal(p.net_quantity?.raw_input) || cleanVal(v.net_quantity) || cleanVal(p.net_quantity_declaration?.raw_input),
+      unit_sale_price_declaration: cleanVal(p.unit_sale_price?.raw_input) || (v.unit_sale_price != null ? `₹${v.unit_sale_price}` : "") || cleanVal(p.unit_sale_price_declaration?.raw_input),
+      manufacturing_date_declaration: cleanVal(p.manufacturing_date?.raw_input) || cleanVal(v.mfd_pkd_date) || cleanVal(p.manufacturing_date_declaration?.raw_input),
+      expiry_date_declaration: cleanVal(p.expiry_date?.raw_input) || cleanVal(v.expiry_date) || cleanVal(p.expiry_date_declaration?.raw_input),
+      fssai_license_number: cleanVal(p.fssai_license?.raw_input) || cleanVal(v.fssai_license_number) || cleanVal(p.fssai_license_number?.raw_input),
+      manufacturer_name_address: cleanVal(p.manufacturer_name_address?.raw_input) || cleanVal(v.manufacturer_details) || cleanVal(p.manufacturer_details?.raw_input),
+      country_of_origin_declaration: cleanVal(p.country_of_origin?.raw_input) || cleanVal(v.country_of_origin) || cleanVal(p.country_of_origin_declaration?.raw_input),
+      consumer_care_details: cleanVal(p.consumer_care?.raw_input) || cleanVal(v.consumer_care_details) || cleanVal(p.consumer_care_details?.raw_input),
     });
   }, [verdict]);
 
@@ -60,14 +69,43 @@ export default function ReviewFields() {
     setBusy(true);
     setError(null);
     try {
+      const category = verdict.ai_recognition?.category || verdict.ai_recognition?.effective_category || undefined;
+      const barcode = verdict.barcode_verification?.scanned_barcode || undefined;
+
       // Re-evaluate using the edited text fields
       const updatedVerdict = await processTextScan({
         scan_id: verdict.scan_id,
+        barcode,
+        product_category: category,
         ...fields,
       });
-      // Keep the original metadata (like AI source and timings) but update the rule results
+
+      // Keep the original metadata, recognition, and barcode verification
       if (verdict.ai_recognition) updatedVerdict.ai_recognition = verdict.ai_recognition;
       if (verdict.metadata) updatedVerdict.metadata = verdict.metadata;
+      if (verdict.barcode_verification && !updatedVerdict.barcode_verification) {
+        updatedVerdict.barcode_verification = verdict.barcode_verification;
+      }
+      if (verdict.readability && !updatedVerdict.readability) {
+        updatedVerdict.readability = verdict.readability;
+      }
+
+      // CRITICAL: Ensure vision_extraction is populated with the updated fields so verdict screen displays them
+      const numMrp = parseFloat(fields.mrp_declaration.replace(/[^0-9.]/g, ""));
+      const numUsp = parseFloat(fields.unit_sale_price_declaration.replace(/[^0-9.]/g, ""));
+      updatedVerdict.vision_extraction = {
+        ...(updatedVerdict.vision_extraction || verdict.vision_extraction || {}),
+        mrp: !isNaN(numMrp) ? numMrp : (verdict.vision_extraction?.mrp ?? null),
+        net_quantity: fields.net_quantity_declaration.trim() || null,
+        unit_sale_price: !isNaN(numUsp) ? numUsp : (verdict.vision_extraction?.unit_sale_price ?? null),
+        mfd_pkd_date: fields.manufacturing_date_declaration.trim() || null,
+        expiry_date: fields.expiry_date_declaration.trim() || null,
+        fssai_license_number: fields.fssai_license_number.trim() || null,
+        manufacturer_details: fields.manufacturer_name_address.trim() || null,
+        country_of_origin: fields.country_of_origin_declaration.trim() || null,
+        consumer_care_details: fields.consumer_care_details.trim() || null,
+        unclear_fields: [], // Cleared because the user has reviewed & edited!
+      };
       
       setLastVerdict(updatedVerdict);
       router.replace("/verdict");
@@ -110,6 +148,9 @@ export default function ReviewFields() {
 
           <View style={styles.actions}>
             <Button label="CONFIRM & EVALUATE" onPress={submit} loading={busy} />
+            <View style={{ marginTop: spacing.sm }}>
+              <Button label="CANCEL" variant="outline" onPress={() => router.back()} disabled={busy} />
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

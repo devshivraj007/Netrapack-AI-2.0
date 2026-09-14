@@ -108,3 +108,43 @@ def scan_url(req: UrlScanRequest) -> dict:
         "verdict": result.verdict,
         "note": result.note,
     }
+
+
+@router.get("/{scan_id}/report-pdf", summary="Download compliance report PDF")
+def download_scan_report(scan_id: str):
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+    from app.db import repository
+    from app.services.notice_pdf import generate_notice_pdf
+
+    record = repository.get_latest_scan(scan_id)
+    if not record or not record.get("verdict"):
+        raise HTTPException(status_code=404, detail="Scan record not found")
+    verdict = record["verdict"]
+
+    barcode = None
+    if isinstance(verdict, dict):
+        bv = verdict.get("barcode_verification")
+        if isinstance(bv, dict):
+            barcode = bv.get("scanned_barcode")
+    cat = None
+    if isinstance(verdict, dict):
+        ar = verdict.get("ai_recognition")
+        if isinstance(ar, dict):
+            cat = ar.get("effective_category") or ar.get("category")
+
+    pdf_info = generate_notice_pdf(
+        scan_id=scan_id,
+        verdict=verdict,
+        shop_name="Compliance Verification",
+        inspector_id="NetraPack Inspection Portal",
+        gps_coordinates="N/A",
+        product_barcode=barcode,
+        confirmed_category=cat,
+    )
+    return FileResponse(
+        path=pdf_info["file_path"],
+        filename=pdf_info["file_name"],
+        media_type="application/pdf"
+    )
+

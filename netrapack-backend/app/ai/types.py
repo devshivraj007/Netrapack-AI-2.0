@@ -62,6 +62,8 @@ class VisionExtraction(BaseModel):
     manufacturer_details: Optional[str] = None
     country_of_origin: Optional[str] = None
     consumer_care_details: Optional[str] = None
+    category: Optional[ProductCategory] = None
+    unclear_fields: list[str] = Field(default_factory=list)
 
     # Provenance for the demo badge / debugging.
     ai_source: "AiSource" = AiSource.NONE

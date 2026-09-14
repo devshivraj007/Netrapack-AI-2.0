@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -157,11 +158,12 @@ def _assess_readability(image_bytes: bytes) -> ReadabilityInfo:
 def process_text_scan(req: ScanRequest) -> ScanVerdict:
     """Day 1 compatible path: typed fields straight into the rule engine.
 
-    No image, so no AI recognition; category defaults to 'general' (standard
-    checks + FSSAI is skipped unless caller later supplies a category).
+    No image, so no AI recognition; category defaults to 'general' (or caller-supplied
+    category so food/pharma rules are honoured upon manual review/editing).
     """
     start = time.perf_counter()
-    verdict = _engine.evaluate(req, product_category="general")
+    category = req.product_category or "general"
+    verdict = _engine.evaluate(req, product_category=category)
     
     if req.barcode:
         verdict.barcode_verification = barcode_verify.cross_verify(req.barcode, req.model_dump())
@@ -173,6 +175,38 @@ def process_text_scan(req: ScanRequest) -> ScanVerdict:
         ai_level="rule_engine_only",
         online_offline="online" if detect_online() else "offline",
     )
+
+    # Build vision_extraction from the supplied/parsed declarations so UI clients
+    # that read vision_extraction continue to see the full set of declarations after editing.
+    mrp_num = None
+    if "mrp" in verdict.parsed_fields and verdict.parsed_fields["mrp"].parsed:
+        mrp_num = verdict.parsed_fields["mrp"].parsed.get("mrp")
+    usp_num = None
+    if "unit_sale_price" in verdict.parsed_fields and verdict.parsed_fields["unit_sale_price"].parsed:
+        usp_num = verdict.parsed_fields["unit_sale_price"].parsed.get("unit_sale_price")
+
+    def _get_raw(rule_key: str, fallback: Optional[str]) -> Optional[str]:
+        if fallback and fallback.strip():
+            return fallback.strip()
+        if rule_key in verdict.parsed_fields and verdict.parsed_fields[rule_key].raw_input:
+            raw = str(verdict.parsed_fields[rule_key].raw_input).strip()
+            if raw and not raw.lower() in ("not declared", "none", "null"):
+                return raw
+        return None
+
+    verdict.vision_extraction = {
+        "mrp": mrp_num,
+        "net_quantity": _get_raw("net_quantity", req.net_quantity_declaration),
+        "unit_sale_price": usp_num,
+        "mfd_pkd_date": _get_raw("manufacturing_date", req.manufacturing_date_declaration),
+        "expiry_date": _get_raw("expiry_date", req.expiry_date_declaration),
+        "fssai_license_number": _get_raw("fssai_license", req.fssai_license_number),
+        "manufacturer_details": _get_raw("manufacturer_name_address", req.manufacturer_name_address),
+        "country_of_origin": _get_raw("country_of_origin", req.country_of_origin_declaration),
+        "consumer_care_details": _get_raw("consumer_care", req.consumer_care_details),
+        "unclear_fields": [],
+    }
+
     _persist(verdict, input_mode="text")
     return verdict
 
@@ -234,22 +268,36 @@ def process_photo_scan_multi(scan_id: str, images: list[bytes],
     # --- Barcode shortcut: known product -> skip the AI category call --------
     reference = None
     if barcode:
-        try:
-            reference = repository.get_product_by_barcode(barcode)
-        except Exception:
-            reference = None
-
-    # --- Run category recognition + field extraction CONCURRENTLY ------------
-    # When the barcode is known we already have the category, so we only need
-    # the field extraction; otherwise we fire both at once and join.
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        fields_future = pool.submit(_recognizer.extract_fields, images)
-        if reference is not None:
-            rec = _recognize_from_reference(reference)
+        barcode_clean = barcode.strip()
+        # Discard non-product barcodes (like URLs or Expo developer QR codes)
+        if re.match(r"^\d{8,14}$", barcode_clean):
+            barcode = barcode_clean
+            try:
+                reference = repository.get_product_by_barcode(barcode)
+            except Exception:
+                reference = None
         else:
-            rec_future = pool.submit(_recognizer.recognize, primary)
-            rec = rec_future.result()
-        vision = fields_future.result()
+            barcode = None
+
+    # --- Unified field extraction + category classification ----------------
+    # Unified single call saves ~1,300 tokens per scan, stays well under
+    # Groq's 7,000 ITPM rate limit, and avoids duplicate API calls.
+    vision = _recognizer.extract_fields(images)
+
+    if reference is not None:
+        rec = _recognize_from_reference(reference)
+    elif vision is not None and vision.category is not None:
+        rec = RecognitionResult(
+            category=vision.category,
+            confidence=0.95,
+            ai_source=vision.ai_source,
+            model_name=vision.model_name or "vision_ai",
+            below_confidence_threshold=False,
+            confirmation_status="autonomous_ai_verified",
+            note=f"Autonomous AI verification: identified category as '{vision.category.value}' from label analysis.",
+        )
+    else:
+        rec = _recognizer.recognize(primary)
 
     ai_recognition = _to_ai_recognition(rec)
 
@@ -287,6 +335,45 @@ def process_photo_scan_multi(scan_id: str, images: list[bytes],
             )
         extraction_source = "ocr"
         fields = dict(ocr.fields)
+        
+        # Build vision_payload from OCR fields so the client always displays the extracted declarations
+        from app.rule_engine.parsers import parse_prices
+        mrp_num = None
+        if fields.get("mrp_declaration"):
+            p_res = parse_prices(fields["mrp_declaration"])
+            mrp_num = p_res.single if p_res else None
+        usp_num = None
+        if fields.get("unit_sale_price_declaration"):
+            p_res = parse_prices(fields["unit_sale_price_declaration"])
+            usp_num = p_res.single if p_res else None
+
+        vision_payload = {
+            "mrp": mrp_num,
+            "net_quantity": fields.get("net_quantity_declaration"),
+            "unit_sale_price": usp_num,
+            "mfd_pkd_date": fields.get("manufacturing_date_declaration"),
+            "expiry_date": fields.get("expiry_date_declaration"),
+            "fssai_license_number": fields.get("fssai_license_number"),
+            "manufacturer_details": fields.get("manufacturer_name_address"),
+            "country_of_origin": fields.get("country_of_origin_declaration"),
+            "consumer_care_details": fields.get("consumer_care_details"),
+            "unclear_fields": [],
+        }
+
+    # Autonomous FSSAI Booster: If FSSAI is missing or invalid on food packages,
+    # recover the real 14-digit number from fine print using PaddleOCR
+    from app.ocr.paddle_reader import find_fssai_paddle
+    from app.rule_engine.parsers import find_fssai_14
+
+    current_fssai = fields.get("fssai_license_number")
+    if not find_fssai_14(current_fssai):
+        for img_b in images:
+            recovered_fssai = find_fssai_paddle(img_b)
+            if recovered_fssai:
+                fields["fssai_license_number"] = recovered_fssai
+                if vision_payload is not None:
+                    vision_payload["fssai_license_number"] = recovered_fssai
+                break
 
     # --- Rule engine (category gates the FSSAI check) ------------------------
     req = ScanRequest(scan_id=scan_id, barcode=barcode, **fields)
@@ -294,7 +381,28 @@ def process_photo_scan_multi(scan_id: str, images: list[bytes],
     
     if barcode:
         verdict.barcode_verification = barcode_verify.cross_verify(barcode, req.model_dump())
-        
+
+    # Tag any fields the vision model identified as faint, blurry, or low-confidence
+    if vision and vision.unclear_fields:
+        FIELD_KEY_MAP = {
+            "mrp": "mrp",
+            "net_quantity": "net_quantity",
+            "mfd_pkd_date": "manufacturing_date",
+            "expiry_date": "expiry_date",
+            "fssai_license_number": "fssai_license",
+            "manufacturer_details": "manufacturer_name_address",
+            "country_of_origin": "country_of_origin",
+            "consumer_care_details": "consumer_care",
+            "unit_sale_price": "unit_sale_price",
+        }
+        for u_key in vision.unclear_fields:
+            rule_key = FIELD_KEY_MAP.get(u_key, u_key)
+            if rule_key in verdict.parsed_fields:
+                fr = verdict.parsed_fields[rule_key]
+                if isinstance(fr.parsed, dict):
+                    fr.parsed["needs_verification"] = True
+                fr.notes = (fr.notes or "") + " (⚠️ Partially unclear on label — verify manually)"
+
     verdict.ai_recognition = ai_recognition
     verdict.ocr = ocr_info
     verdict.vision_extraction = vision_payload

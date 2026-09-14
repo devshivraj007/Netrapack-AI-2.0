@@ -272,8 +272,13 @@ _MONTHS = {
     "dec": 12, "december": 12,
 }
 
-_MM_YYYY_RE = re.compile(r"\b(0?[1-9]|1[0-2])\s*[/\-.]\s*(\d{4})\b")
-_MON_YYYY_RE = re.compile(r"\b([A-Za-z]{3,9})\.?\s+(\d{4})\b")
+_DMY_RE = re.compile(r"\b(?:[0-2]?[0-9]|3[01])\s*[/\-.]\s*(0?[1-9]|1[0-2])\s*[/\-.]\s*(\d{2,4})\b")
+_MM_YYYY_RE = re.compile(r"\b(0?[1-9]|1[0-2])\s*[/\-.]\s*(\d{2,4})\b")
+_MON_YYYY_RE = re.compile(r"\b(?:(?:[0-2]?[0-9]|3[01])\s*[/\-.\s]\s*)?([A-Za-z]{3,9})\.?\s*[/\-.\s]?\s*(\d{2,4})\b")
+_BEST_BEFORE_RE = re.compile(
+    r"(?:best\s*before|use\s*by|use\s*within|bb|expiry\s*within)\s*(\d+)\s*(months?|days?|weeks?|yrs?|years?)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -283,6 +288,8 @@ class DateParseResult:
     year: Optional[int] = None
     raw: Optional[str] = None
     error: Optional[str] = None
+    is_best_before_statement: bool = False
+    best_before_duration: Optional[str] = None
 
     def as_first_of_month(self) -> Optional[date]:
         if self.ok and self.month and self.year:
@@ -297,26 +304,61 @@ class DateParseResult:
 
 
 def parse_month_year(text: Optional[str]) -> DateParseResult:
-    """Parse a Month+Year date. Day is intentionally NOT required.
+    """Parse a date or best-before declaration.
 
-    Accepts numeric "03/2026" (and - or . separators) or worded "MAR 2026".
+    Handles real Indian retail packaging variations (Amul, Britannia, etc.):
+      1. Best-before duration: e.g. "Best before 9 months from packaging",
+         "BEST BEFORE 180 DAYS FROM PKG".
+      2. Full dates: "PKD 15/01/2026", "Packed: 05/02/26".
+      3. Standard Month+Year: "03/2026", "02/26", "MAR 2026", "15-MAR-26".
+      4. Stamped alphanumeric dates: "PKD 07/AUG/26", "Exp: 03/FEB/27".
+    Day is not required by law (LMPC Rule 6(1)(c)), but if printed, month+year
+    are cleanly extracted.
     """
     if not text or not text.strip():
         return DateParseResult(ok=False, raw=text, error="empty")
 
     cleaned = text.strip()
 
+    # 1. Best Before duration statement
+    bb_m = _BEST_BEFORE_RE.search(cleaned)
+    if bb_m:
+        duration = f"{bb_m.group(1)} {bb_m.group(2).lower()}"
+        return DateParseResult(
+            ok=True,
+            is_best_before_statement=True,
+            best_before_duration=duration,
+            raw=text,
+        )
+
+    # 2. DD/MM/YYYY or DD/MM/YY (must check before MM/YY to avoid ambiguity)
+    m = _DMY_RE.search(cleaned)
+    if m:
+        mo = int(m.group(1))
+        yr = int(m.group(2))
+        if yr < 100:
+            yr += 2000
+        return DateParseResult(ok=True, month=mo, year=yr, raw=text)
+
+    # 3. MM/YYYY or MM/YY
     m = _MM_YYYY_RE.search(cleaned)
     if m:
-        return DateParseResult(ok=True, month=int(m.group(1)), year=int(m.group(2)), raw=text)
+        mo = int(m.group(1))
+        yr = int(m.group(2))
+        if yr < 100:
+            yr += 2000
+        return DateParseResult(ok=True, month=mo, year=yr, raw=text)
 
-    m = _MON_YYYY_RE.search(cleaned)
-    if m:
+    # 4. Worded month / stamped alphanumeric dates: "PKD 07/AUG/26", "MAR 2026", "15-MAR-26", "Exp: 03/FEB/27"
+    for m in _MON_YYYY_RE.finditer(cleaned):
         name = m.group(1).lower()
         if name in _MONTHS:
-            return DateParseResult(ok=True, month=_MONTHS[name], year=int(m.group(2)), raw=text)
+            yr = int(m.group(2))
+            if yr < 100:
+                yr += 2000
+            return DateParseResult(ok=True, month=_MONTHS[name], year=yr, raw=text)
 
-    return DateParseResult(ok=False, raw=text, error="not a recognised Month+Year format")
+    return DateParseResult(ok=False, raw=text, error="not a recognised Month+Year or Best Before format")
 
 
 # ---------------------------------------------------------------------------

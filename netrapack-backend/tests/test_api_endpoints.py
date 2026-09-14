@@ -190,3 +190,56 @@ def test_chain_of_custody_hash(tmp_path, monkeypatch):
 def test_chain_of_custody_triggers():
     from scripts.verify_chain_of_custody import verify_triggers
     assert verify_triggers() is True
+
+
+def test_chat_general_mode(client):
+    r = client.post("/api/v1/chat/query", json={"scan_id": "general", "question": "What are mandatory declarations under Rule 6?"})
+    assert r.status_code == 200
+    res = r.json()
+    assert res["scan_id"] == "general"
+    assert "Rule 6" in res["answer"] or "Maximum Retail Price" in res["answer"]
+    assert LEGAL_DISCLAIMER in res["answer"]
+
+
+def test_barcode_gs1_cross_verify():
+    from app.services.barcode_verify import cross_verify, resolve_gs1_prefix
+    p, country = resolve_gs1_prefix("8901234567890")
+    assert p == "890" and "India" in country
+
+    p_cn, country_cn = resolve_gs1_prefix("6901234567890")
+    assert "China" in country_cn
+
+    # Test cross_verify with 890 and India origin
+    res = cross_verify("8901234567890", {"country_of_origin_declaration": "Made in India"})
+    assert res.gs1_prefix == "890"
+    assert res.origin_matches_barcode is True
+
+    # Test mismatch with China origin declared
+    res_mismatch = cross_verify("8901234567890", {"country_of_origin_declaration": "Made in China"})
+    assert res_mismatch.origin_matches_barcode is False
+
+
+def test_mrp_tax_inclusion_check():
+    from app.rule_engine.engine import RuleEngine
+    from app.schemas.scan import ScanRequest
+
+    engine = RuleEngine()
+    # Declared with taxes
+    v1 = engine.evaluate(ScanRequest(
+        scan_id="t-tax-1",
+        mrp_declaration="MRP Rs. 150 (incl. of all taxes)",
+        net_quantity_declaration="100g",
+        manufacturing_date_declaration="01/2026",
+    ))
+    assert v1.parsed_fields["mrp"].parsed.get("tax_included_declared") is True
+
+    # Declared without taxes
+    v2 = engine.evaluate(ScanRequest(
+        scan_id="t-tax-2",
+        mrp_declaration="MRP Rs. 150",
+        net_quantity_declaration="100g",
+        manufacturing_date_declaration="01/2026",
+    ))
+    assert v2.parsed_fields["mrp"].parsed.get("tax_included_declared") is False
+    assert "Advisory" in v2.parsed_fields["mrp"].notes
+

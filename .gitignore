@@ -1,0 +1,38 @@
+# Environments & Keys
+.env
+*.env
+.venv/
+venv/
+env/
+
+# Hotspot / Local dev scripts
+toggle_hotspot.ps1
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Databases & Storage
+*.db
+*.db-wal
+*.db-shm
+data/
+storage/
+*.log
+
+# Node & Expo
+node_modules/
+.expo/
+dist/
+web-build/
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db

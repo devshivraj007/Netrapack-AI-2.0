@@ -8,6 +8,8 @@ import {
   Alert,
   Linking,
   Platform,
+  Pressable,
+  Share,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Header } from "../src/components/Header";
@@ -16,6 +18,7 @@ import { colors, font, radius, spacing, statusStyle } from "../src/theme";
 import { getLastVerdict } from "../src/verdictStore";
 import { session } from "../src/session";
 import { confirmCategory, generateNotice, type VisionExtraction } from "../src/api";
+import { API_BASE_URL } from "../src/config";
 
 const NCH_HELPLINE = "1800-11-4000";
 // e-Jagriti was merged into the main NCH consumer complaint portal.
@@ -82,6 +85,14 @@ export default function Verdict() {
   }
 
   const ve: VisionExtraction = verdict.vision_extraction ?? {};
+  const unclearFields: string[] = ve.unclear_fields || [];
+  const isUnclear = (fieldKey: string, ruleKey?: string) => {
+    return (
+      unclearFields.includes(fieldKey) ||
+      (ruleKey ? unclearFields.includes(ruleKey) : false) ||
+      Boolean(verdict.parsed_fields?.[ruleKey || fieldKey]?.parsed?.needs_verification)
+    );
+  };
   const aiCategory =
     verdict.ai_recognition?.category ||
     verdict.ai_recognition?.effective_category ||
@@ -141,6 +152,35 @@ export default function Verdict() {
     }
   }
 
+  async function shareSummary() {
+    if (!verdict) return;
+    const vioList = verdict.violations.length > 0
+      ? verdict.violations.map((v, i) => `${i + 1}. [${v.field}] ${v.description} (${v.rule_citation})`).join("\n")
+      : "No violations detected. Product is fully compliant.";
+    const text = [
+      "NETRAPACK STATUTORY COMPLIANCE INSPECTION SUMMARY",
+      "Department of Consumer Affairs, Government of India",
+      "--------------------------------------------------",
+      `Scan ID: ${verdict.scan_id}`,
+      `Status: ${verdict.overall_status.toUpperCase()}`,
+      `Rules Passed: ${verdict.rules_passed} / ${verdict.rules_checked}`,
+      `Barcode: ${verdict.barcode_verification?.scanned_barcode || "N/A"}`,
+      `GS1 Origin: ${verdict.barcode_verification?.gs1_country || "N/A"}`,
+      "",
+      "VIOLATIONS / FINDINGS:",
+      vioList,
+      "",
+      `Evidence SHA-256: ${verdict.metadata?.image_hash || "Secured in custody record"}`,
+      `Verified via NetraPack AI Inspection Portal`,
+    ].join("\n");
+
+    try {
+      await Share.share({ message: text, title: `NetraPack Compliance Report #${verdict.scan_id}` });
+    } catch {
+      // dismissed
+    }
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <Header subtitle="Compliance Verdict" />
@@ -154,51 +194,179 @@ export default function Verdict() {
           </Text>
         </View>
 
+        {/* PDF Compliance Report Download Card */}
+        <View style={styles.downloadCard}>
+          <Text style={styles.downloadTitle}>STATUTORY COMPLIANCE REPORT</Text>
+          <Text style={styles.downloadSub}>
+            Official Legal Metrology inspection record with evidence hash &amp; violation breakdown.
+          </Text>
+          <Button
+            label="📄  DOWNLOAD COMPLIANCE REPORT (PDF)"
+            onPress={() =>
+              openExternal(
+                `${API_BASE_URL}/scan/${verdict.scan_id}/report-pdf`,
+                "Download Compliance Report"
+              )
+            }
+          />
+          <View style={styles.downloadCardBtnRow}>
+            <View style={{ flex: 1 }}>
+              <Button
+                label="✏️  EDIT FIELDS"
+                variant="outline"
+                onPress={() => router.push("/review-fields")}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button
+                label="📋  SHARE REPORT"
+                variant="outline"
+                onPress={shareSummary}
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* Ask AI Assistant Callout */}
+        <Pressable
+          style={styles.askAiCard}
+          onPress={() =>
+            router.push({ pathname: "/chat", params: { scanId: verdict.scan_id } })
+          }
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.askAiTitle}>💬 Ask DCA AI Assistant</Text>
+            <Text style={styles.askAiSub}>
+              Questions about Rule 6 violations, USP calculations, or Section 36 penalties?
+            </Text>
+          </View>
+          <View style={styles.askAiPill}>
+            <Text style={styles.askAiPillText}>ASK AI →</Text>
+          </View>
+        </Pressable>
+
         {/* Official report container */}
         <View style={styles.report}>
           <Text style={styles.reportTitle}>EXTRACTED DECLARATIONS</Text>
-          <Field label="Maximum Retail Price (MRP)" value={money(ve.mrp)} />
+
+          {unclearFields.length > 0 ? (
+            <View style={styles.unclearNotice}>
+              <Text style={styles.unclearNoticeIcon}>ℹ️</Text>
+              <Text style={styles.unclearNoticeText}>
+                Autonomous inspection complete. Fields marked "Verify Manually" were extracted from faint or stamped print and are flagged for physical pack reference.
+              </Text>
+            </View>
+          ) : null}
+
+          <Field
+            label="Maximum Retail Price (MRP)"
+            value={money(ve.mrp) || (verdict.parsed_fields?.mrp?.raw_input ? String(verdict.parsed_fields.mrp.raw_input) : undefined)}
+            needsVerification={isUnclear("mrp")}
+          />
+          {verdict.parsed_fields?.mrp?.parsed?.tax_included_declared ? (
+            <View style={styles.taxPillOk}>
+              <Text style={styles.taxPillOkText}>✓ Statutory text '(incl. of all taxes)' verified (Rule 6(1)(e))</Text>
+            </View>
+          ) : verdict.parsed_fields?.mrp?.parsed?.tax_included_declared === false ? (
+            <View style={styles.taxPillWarn}>
+              <Text style={styles.taxPillWarnText}>⚠️ Advisory: Statutory '(incl. of all taxes)' not detected (Rule 6(1)(e))</Text>
+            </View>
+          ) : null}
           {ve.mrp_is_ambiguous ? (
             <Text style={styles.ambiguous}>
               Multiple prices detected — flagged for manual review.
             </Text>
           ) : null}
-          <Field label="Net Quantity" value={ve.net_quantity} />
-          <Field label="Unit Sale Price" value={ve.unit_sale_price != null ? `Rs ${ve.unit_sale_price}` : undefined} />
-          <Field label="Mfg / Packed Date" value={ve.mfd_pkd_date} />
-          <Field label="Expiry / Best Before" value={ve.expiry_date} />
-          <Field label="FSSAI Licence No." value={ve.fssai_license_number} />
-          <Field label="Country of Origin" value={ve.country_of_origin} />
-          <Field label="Manufacturer" value={ve.manufacturer_details} />
+          <Field
+            label="Net Quantity"
+            value={ve.net_quantity || (verdict.parsed_fields?.net_quantity?.raw_input ? String(verdict.parsed_fields.net_quantity.raw_input) : undefined)}
+            needsVerification={isUnclear("net_quantity")}
+          />
+          <Field
+            label="Unit Sale Price"
+            value={ve.unit_sale_price != null ? `Rs ${ve.unit_sale_price}` : (verdict.parsed_fields?.unit_sale_price?.raw_input ? String(verdict.parsed_fields.unit_sale_price.raw_input) : undefined)}
+            needsVerification={isUnclear("unit_sale_price")}
+          />
+          <Field
+            label="Mfg / Packed Date"
+            value={ve.mfd_pkd_date || (verdict.parsed_fields?.manufacturing_date?.raw_input ? String(verdict.parsed_fields.manufacturing_date.raw_input) : undefined)}
+            needsVerification={isUnclear("mfd_pkd_date", "manufacturing_date")}
+          />
+          <Field
+            label="Expiry / Best Before"
+            value={ve.expiry_date || (verdict.parsed_fields?.expiry_date?.raw_input ? String(verdict.parsed_fields.expiry_date.raw_input) : undefined)}
+            needsVerification={isUnclear("expiry_date")}
+          />
+          <Field
+            label="FSSAI Licence No."
+            value={ve.fssai_license_number || (verdict.parsed_fields?.fssai_license?.raw_input ? String(verdict.parsed_fields.fssai_license.raw_input) : undefined)}
+            needsVerification={isUnclear("fssai_license_number", "fssai_license")}
+          />
+          <Field
+            label="Country of Origin"
+            value={ve.country_of_origin || (verdict.parsed_fields?.country_of_origin?.raw_input ? String(verdict.parsed_fields.country_of_origin.raw_input) : undefined)}
+            needsVerification={isUnclear("country_of_origin")}
+          />
+          <Field
+            label="Manufacturer"
+            value={ve.manufacturer_details || (verdict.parsed_fields?.manufacturer_name_address?.raw_input ? String(verdict.parsed_fields.manufacturer_name_address.raw_input) : undefined)}
+            needsVerification={isUnclear("manufacturer_details", "manufacturer_name_address")}
+          />
+          <Field
+            label="Consumer Care Contact"
+            value={ve.consumer_care_details || (verdict.parsed_fields?.consumer_care?.raw_input ? String(verdict.parsed_fields.consumer_care.raw_input) : undefined)}
+            needsVerification={isUnclear("consumer_care_details", "consumer_care")}
+          />
         </View>
 
-        {/* Registry Cross-Check */}
-        {verdict.barcode_verification?.matched ? (
+        {/* Registry & GS1 Cross-Check */}
+        {verdict.barcode_verification?.scanned_barcode ? (
           <View style={styles.registryWrap}>
-            <Text style={styles.reportTitle}>REGISTRY CROSS-CHECK</Text>
+            <Text style={styles.reportTitle}>BARCODE &amp; GS1 REGISTRY CHECK</Text>
             <Text style={styles.registrySub}>
-              Barcode {verdict.barcode_verification.scanned_barcode} verified as{" "}
-              <Text style={{ fontWeight: "800" }}>{verdict.barcode_verification.product_name}</Text>.
+              Barcode: <Text style={{ fontWeight: "800", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>{verdict.barcode_verification.scanned_barcode}</Text>
+              {verdict.barcode_verification.product_name ? ` • ${verdict.barcode_verification.product_name}` : ""}
             </Text>
-            {verdict.barcode_verification.comparisons.map((c, i) => {
-              if (c.status === "not_available") return null;
-              const isMatch = c.status === "agree";
-              return (
-                <View key={i} style={styles.registryRow}>
-                  <Text style={styles.registryIcon}>{isMatch ? "✅" : "❌"}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.registryLabel, !isMatch && { color: colors.red }]}>
-                      {c.field.toUpperCase().replace(/_/g, " ")}
-                    </Text>
-                    <Text style={styles.registryValue}>
-                      {isMatch
-                        ? `Matches registry: ${c.reference}`
-                        : `MISMATCH! Printed '${c.declared}' but registry expects '${c.reference}'`}
-                    </Text>
+
+            {verdict.barcode_verification.gs1_country ? (
+              <View style={styles.gs1Row}>
+                <Text style={styles.gs1Text}>
+                  GS1 Prefix {verdict.barcode_verification.gs1_prefix || ""}:{" "}
+                  <Text style={{ fontWeight: "800", color: colors.navyDark }}>{verdict.barcode_verification.gs1_country}</Text>
+                </Text>
+                {verdict.barcode_verification.origin_matches_barcode === false ? (
+                  <View style={styles.gs1MismatchBadge}>
+                    <Text style={styles.gs1MismatchText}>⚠️ ORIGIN MISMATCH</Text>
                   </View>
-                </View>
-              );
-            })}
+                ) : verdict.barcode_verification.origin_matches_barcode === true ? (
+                  <View style={styles.gs1MatchBadge}>
+                    <Text style={styles.gs1MatchText}>✓ MATCHES ORIGIN</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
+            {verdict.barcode_verification.matched && verdict.barcode_verification.comparisons ? (
+              verdict.barcode_verification.comparisons.map((c, i) => {
+                if (c.status === "not_available") return null;
+                const isMatch = c.status === "agree";
+                return (
+                  <View key={i} style={styles.registryRow}>
+                    <Text style={styles.registryIcon}>{isMatch ? "✅" : "❌"}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.registryLabel, !isMatch && { color: colors.red }]}>
+                        {c.field.toUpperCase().replace(/_/g, " ")}
+                      </Text>
+                      <Text style={styles.registryValue}>
+                        {isMatch
+                          ? `Matches registry: ${c.reference}`
+                          : `MISMATCH! Printed '${c.declared}' but registry expects '${c.reference}'`}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })
+            ) : null}
           </View>
         ) : null}
 
@@ -303,7 +471,7 @@ export default function Verdict() {
             </Text>
           </View>
           <Text style={styles.catStatus}>
-            {confirmedCategory ? "Officer-confirmed" : "AI-suggested, not confirmed"}
+            {confirmedCategory ? "Officer-confirmed" : "Autonomous AI-verified"}
           </Text>
         </View>
 
@@ -407,7 +575,7 @@ export default function Verdict() {
                     </Text>
                     <Button 
                       label="📄  DOWNLOAD / OPEN PDF" 
-                      onPress={() => openExternal(`http://10.86.20.33:8000/api/v1/officer/notice/${noticeInfo.filename}`, "Download PDF")} 
+                      onPress={() => openExternal(`${API_BASE_URL}/officer/notice/${noticeInfo.filename}`, "Download PDF")} 
                     />
                   </View>
                 ) : null}
@@ -422,12 +590,27 @@ export default function Verdict() {
   );
 }
 
-function Field({ label, value }: { label: string; value?: string | null }) {
+function Field({
+  label,
+  value,
+  needsVerification = false,
+}: {
+  label: string;
+  value?: string | null;
+  needsVerification?: boolean;
+}) {
   const shown = value && String(value).trim() ? String(value) : "Not declared";
   const missing = !(value && String(value).trim());
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={styles.fieldHeaderRow}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        {needsVerification && !missing ? (
+          <View style={styles.verifyBadge}>
+            <Text style={styles.verifyBadgeText}>⚠️ Verify Manually</Text>
+          </View>
+        ) : null}
+      </View>
       <Text style={[styles.fieldValue, missing ? styles.fieldMissing : null]}>{shown}</Text>
     </View>
   );
@@ -473,8 +656,53 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: spacing.md,
   },
-  field: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
-  fieldLabel: { fontSize: font.small, color: colors.textMuted, fontWeight: "700", textTransform: "uppercase" },
+  field: {
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: 2,
+  },
+  fieldHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  verifyBadge: {
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 1,
+  },
+  verifyBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#92400E",
+  },
+  unclearNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  unclearNoticeIcon: { fontSize: 16 },
+  unclearNoticeText: {
+    flex: 1,
+    fontSize: font.small,
+    color: "#92400E",
+    lineHeight: 17,
+  },
+  fieldLabel: {
+    fontSize: font.small,
+    fontWeight: "600",
+    color: colors.textMuted,
+  },
   fieldValue: { fontSize: font.h3, color: colors.text, fontWeight: "700", marginTop: 2 },
   fieldMissing: { color: colors.textMuted, fontStyle: "italic", fontWeight: "600" },
   ambiguous: { color: colors.amber, fontSize: font.small, fontWeight: "700", marginTop: spacing.xs },
@@ -631,5 +859,145 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: font.small,
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  downloadCard: {
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    borderColor: colors.navyDark,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  downloadTitle: {
+    fontSize: font.label,
+    fontWeight: "900",
+    color: colors.navyDark,
+    letterSpacing: 0.5,
+  },
+  downloadSub: {
+    fontSize: font.small,
+    color: colors.textMuted,
+    lineHeight: 18,
+  },
+  downloadCardBtnRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: 2,
+  },
+  askAiCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1.5,
+    borderColor: "#86EFAC",
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  askAiTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#166534",
+  },
+  askAiSub: {
+    fontSize: 10.5,
+    color: "#15803D",
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  askAiPill: {
+    backgroundColor: "#166534",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.sm,
+  },
+  askAiPillText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+  taxPillOk: {
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginTop: 3,
+    marginBottom: 4,
+  },
+  taxPillOkText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#047857",
+  },
+  taxPillWarn: {
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginTop: 3,
+    marginBottom: 4,
+  },
+  taxPillWarnText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#B45309",
+  },
+  gs1Row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginVertical: 4,
+  },
+  gs1Text: {
+    fontSize: 11,
+    color: "#475569",
+    flex: 1,
+  },
+  gs1MatchBadge: {
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  gs1MatchText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "#059669",
+  },
+  gs1MismatchBadge: {
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  gs1MismatchText: {
+    fontSize: 9.5,
+    fontWeight: "900",
+    color: "#DC2626",
   },
 });

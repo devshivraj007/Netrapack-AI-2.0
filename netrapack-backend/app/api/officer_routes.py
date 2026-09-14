@@ -103,9 +103,7 @@ def generate_notice(req: GenerateNoticeRequest,
     return {"status": "generated", **result}
 
 
-_NOTICES_DIR = Path(os.environ.get("NETRAPACK_NOTICES_DIR",
-                                   str(Path(__file__).resolve().parents[3]
-                                       / "storage" / "notices")))
+from app.services.notice_pdf import _NOTICES_DIR
 
 @router.get("/notice/{file_name}", summary="Download a generated notice PDF")
 def download_notice(file_name: str):

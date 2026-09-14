@@ -17,7 +17,7 @@ import Constants from "expo-constants";
  *   uvicorn app.main:app --host 0.0.0.0 --port 8000
  * so it's reachable from the LAN.
  */
-const FALLBACK = "http://10.86.20.33:8000/api/v1";
+const FALLBACK = "http://192.168.137.1:8000/api/v1";
 
 export const API_BASE_URL: string =
   process.env.EXPO_PUBLIC_API_BASE_URL ||

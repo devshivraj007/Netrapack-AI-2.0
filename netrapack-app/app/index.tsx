@@ -1,9 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  Animated,
   Pressable,
   StatusBar,
   Image,
@@ -13,30 +12,21 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors, font, radius, spacing } from "../src/theme";
+import { session } from "../src/session";
 
-const EMBLEM_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Emblem_of_India.svg/200px-Emblem_of_India.svg.png";
+const EMBLEM_IMG = require("../assets/images/emblem.png");
 
-export default function Welcome() {
+export default function Home() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
+  const [, force] = useState(0);
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    return session.subscribe(() => force((n) => n + 1));
   }, []);
+
+  const isOfficer = session.isOfficer();
+  const currentSession = session.get();
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -45,14 +35,20 @@ export default function Welcome() {
       {/* Top Header */}
       <View style={styles.topHeader}>
         <View style={styles.headerLeft}>
-          <Image 
-            source={{ uri: EMBLEM_URL }} 
-            style={styles.headerEmblem} 
-            resizeMode="contain" 
-          />
-          <View>
-            <Text style={styles.headerTitle}>Department of Consumer Affairs</Text>
-            <Text style={styles.headerSubtitle}>Ministry of Consumer Affairs, Food & Public Distribution</Text>
+          <View style={styles.headerEmblemWrap}>
+            <Image 
+              source={EMBLEM_IMG} 
+              style={styles.headerEmblem} 
+              resizeMode="contain" 
+            />
+          </View>
+          <View style={styles.headerTextCol}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              Department of Consumer Affairs
+            </Text>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
+              Ministry of Consumer Affairs, Food & Public Distribution
+            </Text>
           </View>
         </View>
         <View style={styles.liveBadge}>
@@ -63,113 +59,148 @@ export default function Welcome() {
 
       <ScrollView 
         style={styles.scrollArea} 
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
-        <Animated.View style={{ opacity: fadeAnim }}>
+        {/* Hero Banner */}
+        <View style={styles.heroCard}>
+          <View style={styles.heroPattern1} />
+          <View style={styles.heroPattern2} />
+
+          {/* White Circular Emblem Ring */}
+          <View style={styles.emblemCircle}>
+            <Image 
+              source={EMBLEM_IMG} 
+              style={styles.heroEmblem} 
+              resizeMode="contain" 
+            />
+          </View>
+
+          {/* Legal Metrology Pill */}
+          <View style={styles.heroPill}>
+            <MaterialCommunityIcons name="scale-balance" size={13} color="#FCEB8D" />
+            <Text style={styles.heroPillText}>Legal Metrology Division</Text>
+          </View>
+
+          {/* Title Row */}
+          <View style={styles.heroTitleRow}>
+            <Text style={styles.heroTitle}>NetraPack</Text>
+            <MaterialCommunityIcons name="check-decagram" size={22} color="#00E676" />
+          </View>
+
+          <Text style={styles.heroSubtitle}>Legal Metrology Compliance Portal</Text>
+          <Text style={styles.heroDesc}>
+            AI-Powered Statutory Verification under Legal Metrology Act, 2009
+          </Text>
+        </View>
+
+        {/* Modules Header */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>STATUTORY MODULES</Text>
+          <Text style={styles.sectionLink}>Rule 6 & Section 36</Text>
+        </View>
+
+        {/* Module Cards */}
+        <View style={styles.modulesContainer}>
           
-          {/* Hero Banner */}
-          <View style={styles.heroCard}>
-            <View style={styles.heroBackgroundPattern} />
-            
-            <View style={styles.emblemCircle}>
-              <Image 
-                source={{ uri: EMBLEM_URL }} 
-                style={[styles.heroEmblem, { tintColor: "#ffffff" }]} 
-                resizeMode="contain" 
-              />
+          {/* Card 1: Instant Statutory Verification */}
+          <View style={styles.moduleCard}>
+            <View style={[styles.moduleIconBg, { backgroundColor: "#EFF6FF" }]}>
+              <MaterialCommunityIcons name="crop-free" size={24} color="#2563EB" />
             </View>
-
-            <View style={styles.heroPill}>
-              <MaterialCommunityIcons name="scale-balance" size={12} color="#FCEB8D" />
-              <Text style={styles.heroPillText}>Legal Metrology Division</Text>
+            <View style={styles.moduleContent}>
+              <Text style={styles.moduleTitle}>Instant Statutory Verification</Text>
+              <Text style={styles.moduleDesc}>
+                Optical scan of MRP, Net Quantity, Dates & Manufacturer details.
+              </Text>
             </View>
-
-            <View style={styles.heroTitleRow}>
-              <Text style={styles.heroTitle}>NetraPack</Text>
-              <MaterialCommunityIcons name="check-decagram-outline" size={22} color="#00E676" />
+            <View style={[styles.moduleBadge, { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0" }]}>
+              <Text style={[styles.moduleBadgeText, { color: "#059669" }]}>AI OCR</Text>
             </View>
-
-            <Text style={styles.heroSubtitle}>Legal Metrology Compliance Portal</Text>
-            <Text style={styles.heroDesc}>
-              AI-Powered Statutory Verification under Legal Metrology Act, 2009
-            </Text>
           </View>
 
-          {/* Modules Header */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>STATUTORY MODULES</Text>
-            <Text style={styles.sectionLink}>Rule 6 & Section 36</Text>
+          {/* Card 2: Rule 6 Declarations Checklist */}
+          <View style={styles.moduleCard}>
+            <View style={[styles.moduleIconBg, { backgroundColor: "#FFFBEB" }]}>
+              <MaterialCommunityIcons name="check-all" size={24} color="#D97706" />
+            </View>
+            <View style={styles.moduleContent}>
+              <Text style={styles.moduleTitle}>Rule 6 Declarations Checklist</Text>
+              <Text style={styles.moduleDesc}>
+                Automated mandatory compliance verification under Legal Metrology Act, 2009.
+              </Text>
+            </View>
+            <View style={[styles.moduleBadge, { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" }]}>
+              <Text style={[styles.moduleBadgeText, { color: "#2563EB" }]}>PCR 2011</Text>
+            </View>
           </View>
 
-          {/* Module Cards */}
-          <View style={styles.modulesContainer}>
-            
-            {/* Card 1 */}
-            <View style={styles.moduleCard}>
-              <View style={[styles.moduleIconBg, { backgroundColor: "#E3F2FD" }]}>
-                <MaterialCommunityIcons name="crop-free" size={24} color="#1976D2" />
-              </View>
-              <View style={styles.moduleContent}>
-                <Text style={styles.moduleTitle}>Instant Statutory Verification</Text>
-                <Text style={styles.moduleDesc}>Optical scan of MRP, Net Quantity, Dates & Manufacturer details.</Text>
-              </View>
-              <View style={[styles.moduleBadge, { backgroundColor: "#E8F5E9", borderColor: "#C8E6C9" }]}>
-                <Text style={[styles.moduleBadgeText, { color: "#2E7D32" }]}>AI OCR</Text>
-              </View>
+          {/* Card 3: Grievance & Section 36 Notice */}
+          <View style={styles.moduleCard}>
+            <View style={[styles.moduleIconBg, { backgroundColor: "#FEF2F2" }]}>
+              <MaterialCommunityIcons name="gavel" size={24} color="#DC2626" />
             </View>
-
-            {/* Card 2 */}
-            <View style={styles.moduleCard}>
-              <View style={[styles.moduleIconBg, { backgroundColor: "#FFF8E1" }]}>
-                <MaterialCommunityIcons name="check-all" size={24} color="#F57C00" />
-              </View>
-              <View style={styles.moduleContent}>
-                <Text style={styles.moduleTitle}>Rule 6 Declarations Checklist</Text>
-                <Text style={styles.moduleDesc}>Automated mandatory compliance verification under Legal Metrology Act, 2009.</Text>
-              </View>
-              <View style={[styles.moduleBadge, { backgroundColor: "#E3F2FD", borderColor: "#BBDEFB" }]}>
-                <Text style={[styles.moduleBadgeText, { color: "#1976D2" }]}>PCR 2011</Text>
-              </View>
+            <View style={styles.moduleContent}>
+              <Text style={styles.moduleTitle}>Grievance & Section 36 Notice</Text>
+              <Text style={styles.moduleDesc}>
+                1-tap infraction report dispatch to National Consumer Helpline & Legal Metrology Officers.
+              </Text>
             </View>
-
-            {/* Card 3 */}
-            <View style={styles.moduleCard}>
-              <View style={[styles.moduleIconBg, { backgroundColor: "#FFEBEE" }]}>
-                <MaterialCommunityIcons name="gavel" size={24} color="#D32F2F" />
-              </View>
-              <View style={styles.moduleContent}>
-                <Text style={styles.moduleTitle}>Grievance & Section 36 Notice</Text>
-                <Text style={styles.moduleDesc}>1-tap infraction report dispatch to National Consumer Helpline & Legal Metrology Officers.</Text>
-              </View>
-              <View style={[styles.moduleBadge, { backgroundColor: "#FFEBEE", borderColor: "#FFCDD2" }]}>
-                <Text style={[styles.moduleBadgeText, { color: "#C62828" }]}>NCH 1915</Text>
-              </View>
+            <View style={[styles.moduleBadge, { backgroundColor: "#FEF2F2", borderColor: "#FECACA" }]}>
+              <Text style={[styles.moduleBadgeText, { color: "#DC2626" }]}>NCH 1915</Text>
             </View>
-
           </View>
 
-          {/* Action Buttons */}
-          <View style={styles.actionContainer}>
-            <Pressable
-              style={({ pressed }) => [styles.scanBtn, pressed && styles.btnPressed]}
-              onPress={() => router.push("/scan")}
-            >
-              <MaterialCommunityIcons name="qrcode-scan" size={22} color="#ffffff" style={{ marginRight: 8 }} />
-              <Text style={styles.scanBtnText}>Start Label Scan</Text>
-              <MaterialCommunityIcons name="arrow-right" size={20} color="#ffffff" style={{ marginLeft: 6 }} />
-            </Pressable>
+        </View>
 
+        {/* Action Buttons */}
+        <View style={styles.actionContainer}>
+          {/* Primary Scan Button */}
+          <Pressable
+            style={({ pressed }) => [styles.scanBtn, pressed && styles.btnPressed]}
+            onPress={() => router.push("/scan")}
+          >
+            <MaterialCommunityIcons name="qrcode-scan" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+            <Text style={styles.scanBtnText}>Start Label Scan</Text>
+            <MaterialCommunityIcons name="arrow-right" size={18} color="#ffffff" style={{ marginLeft: 6 }} />
+          </Pressable>
+
+          {/* Officer Status / Login Button */}
+          {isOfficer ? (
+            <View style={styles.officerActiveCard}>
+              <View style={styles.officerInfoRow}>
+                <MaterialCommunityIcons name="shield-check" size={20} color="#059669" />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={styles.officerName}>
+                    Officer Active: {currentSession.userId ?? "officer"}
+                  </Text>
+                  <Text style={styles.officerRole}>
+                    e-Pramaan SSO Authenticated ({currentSession.role?.toUpperCase()})
+                  </Text>
+                </View>
+                <Pressable onPress={() => session.logout()} style={styles.logoutBtn}>
+                  <Text style={styles.logoutText}>Log out</Text>
+                </Pressable>
+              </View>
+              <Pressable
+                style={({ pressed }) => [styles.historyBtn, pressed && styles.btnPressed]}
+                onPress={() => router.push("/history")}
+              >
+                <MaterialCommunityIcons name="file-search-outline" size={18} color="#1D4ED8" style={{ marginRight: 6 }} />
+                <Text style={styles.historyBtnText}>Search Scan Records & Notices</Text>
+              </Pressable>
+            </View>
+          ) : (
             <Pressable
               style={({ pressed }) => [styles.officerBtn, pressed && styles.btnPressed]}
               onPress={() => router.push("/officer-login")}
             >
-              <MaterialCommunityIcons name="shield-account-outline" size={20} color="#1976D2" style={{ marginRight: 8 }} />
+              <MaterialCommunityIcons name="shield-account-outline" size={20} color="#1D4ED8" style={{ marginRight: 8 }} />
               <Text style={styles.officerBtnText}>Officer Login with e-Pramaan SSO</Text>
             </Pressable>
-          </View>
+          )}
+        </View>
 
-        </Animated.View>
       </ScrollView>
     </View>
   );
@@ -178,7 +209,7 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#F5F7FA",
+    backgroundColor: "#F4F6F9",
   },
   
   /* Header */
@@ -190,50 +221,64 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#E0E0E0",
+    borderBottomColor: "#E2E8F0",
   },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     flex: 1,
+    marginRight: 8,
+  },
+  headerEmblemWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#0F2137",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   headerEmblem: {
-    width: 28,
-    height: 40,
+    width: 32,
+    height: 32,
+  },
+  headerTextCol: {
+    flex: 1,
   },
   headerTitle: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: colors.navyDark,
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.2,
   },
   headerSubtitle: {
-    fontSize: 9,
-    color: colors.textMuted,
+    fontSize: 9.5,
+    color: "#64748B",
     fontWeight: "500",
-    marginTop: 2,
+    marginTop: 1.5,
   },
   liveBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#E8F5E9",
+    backgroundColor: "#ECFDF5",
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3.5,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#C8E6C9",
+    borderColor: "#A7F3D0",
   },
   liveDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#00E676",
+    backgroundColor: "#10B981",
     marginRight: 4,
   },
   liveText: {
     fontSize: 10,
     fontWeight: "800",
-    color: "#2E7D32",
+    color: "#059669",
     letterSpacing: 0.5,
   },
 
@@ -243,73 +288,89 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    gap: 20,
-    flexGrow: 1,
-    justifyContent: "center",
+    gap: 16,
   },
 
   /* Hero Banner */
   heroCard: {
-    backgroundColor: "#1C315E",
-    borderRadius: 16,
-    padding: 24,
+    backgroundColor: "#102A4E",
+    borderRadius: 18,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
     alignItems: "center",
     overflow: "hidden",
-    shadowColor: "#1C315E",
-    shadowOpacity: 0.2,
+    shadowColor: "#102A4E",
+    shadowOpacity: 0.25,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
+    elevation: 6,
+    position: "relative",
   },
-  heroBackgroundPattern: {
+  heroPattern1: {
     position: "absolute",
-    top: -50,
-    right: -50,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
+    top: -40,
+    right: -40,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  heroPattern2: {
+    position: "absolute",
+    top: -10,
+    right: -10,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.04)",
   },
   emblemCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#111D3B",
-    borderWidth: 2,
-    borderColor: "#FCEB8D",
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    backgroundColor: "#0F2137",
+    borderWidth: 2.5,
+    borderColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    overflow: "hidden",
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   heroEmblem: {
-    width: 34,
-    height: 46,
+    width: 66,
+    height: 66,
   },
   heroPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(252, 235, 141, 0.15)",
+    backgroundColor: "rgba(252, 235, 141, 0.12)",
     borderWidth: 1,
-    borderColor: "#FCEB8D",
+    borderColor: "#E5C158",
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 4,
     borderRadius: 16,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   heroPillText: {
     color: "#FCEB8D",
-    fontSize: 10,
-    fontWeight: "800",
+    fontSize: 10.5,
+    fontWeight: "700",
     marginLeft: 6,
   },
   heroTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: 2,
   },
   heroTitle: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "900",
     color: "#ffffff",
     marginRight: 6,
@@ -318,14 +379,14 @@ const styles = StyleSheet.create({
   heroSubtitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#ffffff",
-    marginBottom: 12,
+    color: "#93C5FD",
+    marginBottom: 6,
   },
   heroDesc: {
     fontSize: 11,
-    color: "rgba(255,255,255,0.7)",
+    color: "#CBD5E1",
     textAlign: "center",
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     lineHeight: 16,
   },
 
@@ -334,46 +395,46 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 4,
-    marginBottom: -8,
+    paddingHorizontal: 2,
+    marginTop: 2,
   },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: "800",
-    color: colors.navyDark,
+    color: "#334155",
     letterSpacing: 0.5,
   },
   sectionLink: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: "700",
-    color: "#1976D2",
+    color: "#2563EB",
   },
 
   /* Modules */
   modulesContainer: {
-    gap: 12,
+    gap: 10,
   },
   moduleCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#ffffff",
     borderRadius: 12,
-    padding: 16,
+    padding: 14,
     shadowColor: "#000",
     shadowOpacity: 0.04,
-    shadowRadius: 8,
+    shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
     borderWidth: 1,
     borderColor: "#EAEAEA",
   },
   moduleIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 42,
+    height: 42,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 14,
+    marginRight: 12,
   },
   moduleContent: {
     flex: 1,
@@ -382,45 +443,45 @@ const styles = StyleSheet.create({
   moduleTitle: {
     fontSize: 13,
     fontWeight: "800",
-    color: colors.navyDark,
-    marginBottom: 4,
+    color: "#0F172A",
+    marginBottom: 3,
   },
   moduleDesc: {
-    fontSize: 10,
-    color: colors.textMuted,
-    lineHeight: 14,
+    fontSize: 10.5,
+    color: "#64748B",
+    lineHeight: 15,
   },
   moduleBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
   },
   moduleBadgeText: {
-    fontSize: 9,
-    fontWeight: "900",
+    fontSize: 9.5,
+    fontWeight: "800",
   },
 
   /* Actions */
   actionContainer: {
-    gap: 12,
-    marginTop: 8,
+    gap: 10,
+    marginTop: 4,
   },
   scanBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#D84315", // Deep orange
-    paddingVertical: 16,
+    backgroundColor: "#D84315", // Rich deep orange matching user design
+    paddingVertical: 15,
     borderRadius: 12,
     shadowColor: "#D84315",
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.35,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    elevation: 5,
   },
   scanBtnText: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: "800",
     color: "#ffffff",
   },
@@ -429,18 +490,73 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#ffffff",
-    paddingVertical: 14,
+    paddingVertical: 13,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
+    borderWidth: 1.2,
+    borderColor: "#CBD5E1",
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
   officerBtnText: {
     fontSize: 13,
     fontWeight: "700",
-    color: colors.navyDark,
+    color: "#1E3A5F",
   },
+
+  /* Officer active card */
+  officerActiveCard: {
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1.2,
+    borderColor: "#BFDBFE",
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
+  },
+  officerInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  officerName: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#1E3A5F",
+  },
+  officerRole: {
+    fontSize: 10,
+    color: "#2563EB",
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  logoutBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  logoutText: {
+    color: "#DC2626",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  historyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffffff",
+    paddingVertical: 9,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#93C5FD",
+  },
+  historyBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#1D4ED8",
+  },
+
   btnPressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.85,
+    transform: [{ scale: 0.985 }],
   },
 });

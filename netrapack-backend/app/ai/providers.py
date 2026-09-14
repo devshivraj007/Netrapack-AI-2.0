@@ -52,9 +52,9 @@ OLLAMA_CHAT_MODEL = os.environ.get("OLLAMA_CHAT_MODEL", "llama3.2:3b")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 
 # Primary cloud AI (Groq - ultra fast LPU inference).
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
-GROQ_FALLBACK_MODEL = os.environ.get("GROQ_FALLBACK_MODEL", "qwen/qwen3.6-27b")
-GROQ_CHAT_MODEL = os.environ.get("GROQ_CHAT_MODEL", "qwen/qwen3.8-27b")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.6-27b")
+GROQ_FALLBACK_MODEL = os.environ.get("GROQ_FALLBACK_MODEL", "qwen/qwen3.8-27b")
+GROQ_CHAT_MODEL = os.environ.get("GROQ_CHAT_MODEL", "qwen/qwen3.6-27b")
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 _GROQ_RETRYABLE_STATUS = {404, 429, 500, 503}
 _GROQ_MAX_RETRIES = 1
@@ -105,17 +105,23 @@ _EXTRACTION_PROMPT = (
     '  "mrp_all_prices": [numbers],         // EVERY distinct price seen near MRP, incl. struck-through\n'
     '  "mrp_is_ambiguous": true/false,      // true if you CANNOT tell which price is the active one\n'
     '  "net_quantity": string or null,      // e.g. "150g", "300ml", "1 N", "1 No", "1 unit"\n'
-    '  "unit_sale_price": number or null,   // per-unit price if printed, else null\n'
-    '  "mfd_pkd_date": string or null,      // manufacture/packed date as printed\n'
-    '  "expiry_date": string or null,       // expiry/best-before/use-by as printed\n'
-    '  "fssai_license_number": string or null, // the 14-digit number only, if present\n'
+    '  "mfd_pkd_date": string or null,      // Date of packaging / packing / manufacture as printed on pack:\n'
+    '     // E.g. "PKD 15/01/2026", "Packed On: 05/02/26", "Pkg Date: 03/26", "Mfg: MAR 2026", "BATCH/PKD: 12/25".\n'
+    '     // Indian products (Amul, Britannia, dairy, snacks) often print "Pkg Date", "Packed on", or "PKD:".\n'
+    '  "expiry_date": string or null,       // Expiry / Best-Before / Use-By statement as printed:\n'
+    '     // E.g. "Best before 9 months from packaging", "Best before 180 days from pkg", "Exp: 12/2026", "Use by: 15/08/26".\n'
+    '     // Note: "Best before X months/days from packaging" IS a valid declaration under FSSAI & LMPC!\n'
+    '  "fssai_license_number": string or null, // 14-digit FSSAI number ONLY (often starts with 100... or 1... or 2...). IMPORTANT: Do NOT extract the 13-digit product barcode (which starts with 890...) as FSSAI!\n'
     '  "manufacturer_details": string or null, // ONLY the manufacturer/packer/importer name + address block\n'
     '  "country_of_origin": string or null, // e.g. "India", "China", "Sri Lanka"\n'
-    '  "consumer_care_details": string or null // Consumer care / customer service contact ONLY:\n'
-    '     // Any phone (e.g. "Toll Free: 1800-xxx", "Executive Number: +91 xxx", "Customer Care: xxx"),\n'
-    '     // email (e.g. "help@brand.com"), or helpline text printed on the pack for consumer complaints.\n'
-    '     // DO NOT put manufacturer address here. If none found, use null.\n'
+    '  "consumer_care_details": string or null, // Consumer care / customer service contact ONLY\n'
+    '  "category": one of ["food_and_beverage","personal_care","household","electronics","pharmaceutical","baby_care","other"],\n'
+    '  "unclear_fields": [field_names]       // List of field keys where text was partially obscured, blurry, faint, or low-confidence (e.g. ["mrp", "mfd_pkd_date"]). Empty list [] if all clear.\n'
     "}\n"
+    "CLARITY & CONFIDENCE RULES (crucial):\n"
+    "- If a declaration IS present on the package but partially obscured, faint, blurry, or ambiguous, STILL extract your BEST READING for that field and add its key to 'unclear_fields'. Do NOT omit it with null if text is visible!\n"
+    "- Only set a field to null if that information is genuinely absent or completely illegible.\n"
+    "- Never invent or hallucinate declarations not visible on the packaging.\n"
     "PRICE RULES (important):\n"
     "- List every distinct price you see near the MRP in mrp_all_prices.\n"
     "- If ONE price is struck through / crossed out and another is not, the "
@@ -176,12 +182,12 @@ def _parse_model_json(text: str) -> dict:
         raise ValueError(f"Unparseable model JSON: {text[:200]!r}") from e
 
 
-def _downscale_jpeg(image_bytes: bytes, max_dim: int = 1280) -> bytes:
+def _downscale_jpeg(image_bytes: bytes, max_dim: int = 800) -> bytes:
     """Shrink a photo's longest side to max_dim and re-encode as JPEG.
 
     Big retail photos (3000-4000px, >1MB) are slow to upload and slow for the
     vision model, and can blow the request timeout. Label text reads fine at
-    ~1280px. Falls back to the original bytes if anything goes wrong.
+    ~800px. Falls back to the original bytes if anything goes wrong.
     """
     try:
         import io
@@ -200,6 +206,66 @@ def _downscale_jpeg(image_bytes: bytes, max_dim: int = 1280) -> bytes:
         return out.getvalue()
     except Exception:
         return image_bytes
+
+
+def _composite_or_downscale(images: list[bytes], max_canvas: int = 900) -> list[bytes]:
+    """Prepare 1–4 package photos for Vision AI.
+
+    Groq Vision enforces:
+      1. Maximum 3 images per request (throws 400 'Too many images provided').
+      2. 7,000 Input Tokens Per Minute (ITPM) limit (throws 429 Rate Limit Exceeded).
+
+    Strategy:
+      - 1 image: downscale longest edge to 800px.
+      - 2 images: downscale each to 600px (stays well under 2,000 tokens total).
+      - 3 or 4 images: composite into a unified multi-panel grid canvas (max 900x900px).
+        This sends exactly 1 composite image containing all panels simultaneously,
+        consuming ~1,200 tokens, completely avoiding the 3-image and 7,000 ITPM limits.
+    """
+    if not images:
+        return []
+    if len(images) == 1:
+        return [_downscale_jpeg(images[0], max_dim=800)]
+    if len(images) == 2:
+        return [_downscale_jpeg(b, max_dim=600) for b in images]
+
+    # 3 or 4 images: stitch into a single composite grid canvas
+    try:
+        import io
+        from PIL import Image
+
+        imgs = [Image.open(io.BytesIO(b)).convert("RGB") for b in images[:4]]
+        half = max_canvas // 2
+        tiles = []
+        for im in imgs:
+            w, h = im.size
+            scale = min(half / float(w), half / float(h))
+            nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
+            tiles.append(im.resize((nw, nh), Image.LANCZOS))
+
+        if len(tiles) == 3:
+            tw = max(tiles[0].width + tiles[1].width, tiles[2].width)
+            th = max(tiles[0].height, tiles[1].height) + tiles[2].height
+            canvas = Image.new("RGB", (tw, th), (255, 255, 255))
+            canvas.paste(tiles[0], (0, 0))
+            canvas.paste(tiles[1], (tiles[0].width, 0))
+            canvas.paste(tiles[2], (0, max(tiles[0].height, tiles[1].height)))
+        else:  # 4 images
+            tw = max(tiles[0].width + tiles[1].width, tiles[2].width + tiles[3].width)
+            th = max(tiles[0].height, tiles[1].height) + max(tiles[2].height, tiles[3].height)
+            canvas = Image.new("RGB", (tw, th), (255, 255, 255))
+            canvas.paste(tiles[0], (0, 0))
+            canvas.paste(tiles[1], (tiles[0].width, 0))
+            canvas.paste(tiles[2], (0, max(tiles[0].height, tiles[1].height)))
+            canvas.paste(tiles[3], (tiles[2].width, max(tiles[0].height, tiles[1].height)))
+
+        out = io.BytesIO()
+        canvas.save(out, format="JPEG", quality=85)
+        return [out.getvalue()]
+    except Exception:
+        # Graceful fallback: downscale at most 2 images
+        return [_downscale_jpeg(b, max_dim=500) for b in images[:2]]
+
 
 
 class OllamaVisionProvider:
@@ -257,7 +323,8 @@ class OllamaVisionProvider:
         if not available or model is None:
             raise RuntimeError("Ollama vision model not available")
 
-        imgs = [base64.b64encode(_downscale_jpeg(b)).decode("ascii") for b in images]
+        optimized = _composite_or_downscale(images)
+        imgs = [base64.b64encode(b).decode("ascii") for b in optimized]
         payload = {
             "model": model,
             "prompt": _EXTRACTION_PROMPT,
@@ -381,7 +448,8 @@ class GroqVisionProvider:
         if not self.api_key:
             raise RuntimeError("GROQ_API_KEY not set")
 
-        b64s = [base64.b64encode(_downscale_jpeg(b)).decode("ascii") for b in images]
+        optimized = _composite_or_downscale(images)
+        b64s = [base64.b64encode(b).decode("ascii") for b in optimized]
 
         models = [self.model]
         if self.fallback_model != self.model:
@@ -419,7 +487,7 @@ class GroqVisionProvider:
         payload = {
             "model": model,
             "messages": [{"role": "user", "content": content}],
-            "max_tokens": 400,
+            "max_tokens": 600,
             "reasoning_effort": "none",
         }
         resp = httpx.post(url, json=payload, headers=headers, timeout=self.timeout)
@@ -551,7 +619,8 @@ class GeminiVisionProvider:
         """Read structured label fields from one or more images (front+back)."""
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY not set")
-        b64s = [base64.b64encode(_downscale_jpeg(b)).decode("ascii") for b in images]
+        optimized = _composite_or_downscale(images)
+        b64s = [base64.b64encode(b).decode("ascii") for b in optimized]
 
         # Try primary then fallback model; each model gets a couple of retries
         # with backoff on transient server errors (503/429/500), because Google
@@ -668,23 +737,29 @@ def _clean_str(value) -> Optional[str]:
     return s
 
 
+_BEST_BEFORE_RE = re.compile(
+    r"best\s*before|use\s*by|use\s*within|bb|pkd|packed|pkg|expiry|exp\b|months?\s*(?:from|of)|days?\s*(?:from|of)",
+    re.IGNORECASE,
+)
+
+
 def _clean_date(value) -> Optional[str]:
     """Return the printed date string only if it looks like a real date.
 
-    Rejects bare numbers like "42" (a common model misread) and junk tokens: a
-    real mfg/expiry declaration contains a month name OR a number-separator date
-    pattern OR a 4-digit year. Otherwise -> None ("Not declared").
+    Accepts Month+Year, full dates (DD/MM/YYYY or DD/MM/YY), stamped packaging
+    dates (PKD 02/26), and statutory 'Best before X months from packaging' statements.
     """
     s = _clean_str(value)
     if s is None:
         return None
+    if _BEST_BEFORE_RE.search(s):
+        return s
     if _MONTH_RE.search(s):
         return s
     if _DATE_NUMSEP_RE.search(s):
         return s
     if re.search(r"\b(19|20)\d{2}\b", s):  # a 4-digit year like 2026
         return s
-    # A bare short number ("42", "7", "123") is not a plausible date.
     return None
 
 
@@ -708,6 +783,25 @@ def _clean_price(value) -> Optional[float]:
     return fp
 
 
+def _clean_fssai(value) -> Optional[str]:
+    """Sanitise FSSAI licence number.
+    
+    Indian FSSAI licence numbers are strictly 14 digits (FSS Act 2006 & Regulations 2011).
+    Rejects 13-digit EAN barcodes or any non-14-digit numbers.
+    """
+    s = _clean_str(value)
+    if s is None:
+        return None
+    digits = re.sub(r"\D", "", s)
+    # EAN-13 barcodes have 13 digits; reject
+    if len(digits) == 13:
+        return None
+    # Must be strictly 14 digits
+    if len(digits) != 14:
+        return None
+    return digits
+
+
 def _extraction_from_data(
     data: dict, source: AiSource, model_name: str
 ) -> VisionExtraction:
@@ -722,9 +816,6 @@ def _extraction_from_data(
     # Sanitise every field: models sometimes emit a bare "42" or junk for a
     # field they can't actually read. Validate the shape and drop implausible
     # values to null so the app shows "Not declared" instead of a fake reading.
-    fssai = _clean_str(data.get("fssai_license_number"))
-    if fssai is not None and not re.search(r"\d", fssai):
-        fssai = None  # an FSSAI licence must contain digits
     return VisionExtraction(
         mrp=_clean_price(data.get("mrp")),
         mrp_all_prices=all_prices,
@@ -733,10 +824,16 @@ def _extraction_from_data(
         unit_sale_price=_clean_price(data.get("unit_sale_price")),
         mfd_pkd_date=_clean_date(data.get("mfd_pkd_date")),
         expiry_date=_clean_date(data.get("expiry_date")),
-        fssai_license_number=fssai,
+        fssai_license_number=_clean_fssai(data.get("fssai_license_number")),
         manufacturer_details=_clean_str(data.get("manufacturer_details")),
         country_of_origin=_clean_country(data.get("country_of_origin")),
         consumer_care_details=_clean_str(data.get("consumer_care_details")),
+        category=_coerce_category(str(data.get("category", "other"))),
+        unclear_fields=[
+            str(f).strip().lower()
+            for f in (data.get("unclear_fields") or [])
+            if isinstance(f, str) and str(f).strip()
+        ],
         ai_source=source,
         model_name=model_name,
     )

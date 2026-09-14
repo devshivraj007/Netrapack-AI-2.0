@@ -24,6 +24,7 @@ from app.api.officer_routes import router as officer_router
 from app.api.reports_routes import router as reports_router
 from app.api.scan_routes import router as scan_router
 from app.db import repository
+from app.ocr.paddle_reader import paddle_available
 from app.ocr.reader import tesseract_available
 
 
@@ -68,7 +69,8 @@ def health() -> dict[str, object]:
     return {
         "status": "ok",
         "service": "netrapack-backend",
-        "version": "0.2.0",
+        "version": "0.3.0",
+        "paddle_available": paddle_available(),
         "tesseract_available": tesseract_available(),
         "online": detect_online(),
         "seed_counts": getattr(app.state, "seed_counts", {}),

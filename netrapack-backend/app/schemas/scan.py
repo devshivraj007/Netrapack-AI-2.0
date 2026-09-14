@@ -54,6 +54,9 @@ class ScanRequest(BaseModel):
     fssai_license_number: Optional[str] = Field(
         None, description="Raw FSSAI text (should contain a 14-digit number)."
     )
+    product_category: Optional[str] = Field(
+        None, description="Optional product category (e.g. food_and_beverage, personal_care)."
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -193,6 +196,9 @@ class BarcodeVerification(BaseModel):
     product_name: Optional[str] = None
     comparisons: list[FieldComparison] = Field(default_factory=list)
     note: Optional[str] = None
+    gs1_prefix: Optional[str] = None
+    gs1_country: Optional[str] = None
+    origin_matches_barcode: Optional[bool] = None
 
 
 class ScanVerdict(BaseModel):

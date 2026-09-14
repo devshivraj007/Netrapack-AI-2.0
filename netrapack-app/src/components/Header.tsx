@@ -1,19 +1,9 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, font, spacing } from "../theme";
 
-/**
- * Official GIGW/DBIM header: deep indigo bar with a proper Government of India
- * circular seal badge (geometric, no emoji — navy/gold ring with "DCA" text and
- * "Dept. of Consumer Affairs" bilingual text next to it), plus a darker teal
- * secondary-nav accent bar carrying the current section title.
- *
- * Emblem design: a concentric-ring circular badge with:
- *   - Outer saffron/gold ring
- *   - White inner disc
- *   - Bold navy "DCA" acronym
- *   - Small "GoI" tag below the main logo block (right side)
- */
+const EMBLEM_IMG = require("../../assets/images/emblem.png");
+
 export function Header({ subtitle }: { subtitle?: string }) {
   const insets = useSafeAreaInsets();
   return (
@@ -22,13 +12,9 @@ export function Header({ subtitle }: { subtitle?: string }) {
       <View style={[styles.bar, { paddingTop: insets.top + spacing.sm }]}>
         <View style={styles.row}>
 
-          {/* Geometric GoI circular seal */}
+          {/* Real GoI Emblem */}
           <View style={styles.sealOuter}>
-            <View style={styles.sealMiddle}>
-              <View style={styles.sealInner}>
-                <Text style={styles.sealAcronym}>DCA</Text>
-              </View>
-            </View>
+            <Image source={EMBLEM_IMG} style={styles.sealImage} resizeMode="contain" />
           </View>
 
           {/* Bilingual department name + app sub-brand */}
@@ -71,34 +57,19 @@ const styles = StyleSheet.create({
 
   // Geometric concentric-ring circular seal (outer gold → middle white → inner)
   sealOuter: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: colors.saffron,     // gold/saffron outer ring
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1.5,
+    borderColor: colors.saffron,
   },
-  sealMiddle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.white,       // white middle ring
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sealInner: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.navy,        // deep navy inner disc
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sealAcronym: {
-    color: colors.white,
-    fontWeight: "900",
-    fontSize: 10,
-    letterSpacing: 0.5,
+  sealImage: {
+    width: 36,
+    height: 36,
   },
 
   // Bilingual department text

@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   Image,
+  Alert,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
@@ -77,7 +78,7 @@ export default function Scan() {
         barcode: barcode || undefined,
       });
       setLastVerdict(verdict);
-      router.replace("/review-fields");
+      router.replace("/verdict");
     } catch (e) {
       setError(
         (e instanceof Error ? e.message : "Scan failed") +
@@ -90,7 +91,7 @@ export default function Scan() {
 
   async function capturePhoto() {
     if (!cameraRef.current || photos.length >= MAX_PHOTOS) return;
-    const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
+    const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
     if (photo?.uri) {
       setPhotos((prev) => [...prev, photo.uri]);
       setShowCamera(false);
@@ -101,7 +102,7 @@ export default function Scan() {
     if (photos.length >= MAX_PHOTOS) return;
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
+      quality: 0.8,
       allowsMultipleSelection: true,
       selectionLimit: MAX_PHOTOS - photos.length,
     });
@@ -156,8 +157,15 @@ export default function Scan() {
           ref={cameraRef}
           style={styles.fullCamera}
           facing="back"
-          barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "qr", "upc_e", "upc_a"] }}
-          onBarcodeScanned={(result) => setBarcode(result.data)}
+          barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_e", "upc_a", "code128"] }}
+          onBarcodeScanned={(result) => {
+            const data = (result.data || "").trim();
+            // Only accept real numeric retail product barcodes (8 to 14 digits)
+            if (!/^\d{8,14}$/.test(data)) {
+              return;
+            }
+            setBarcode(data);
+          }}
         >
           <View style={styles.cameraTopBar}>
             <Pressable onPress={() => setShowCamera(false)} style={styles.camCancel}>
@@ -200,6 +208,23 @@ export default function Scan() {
           <Text style={styles.instructionSub}>
             Capture each panel separately — front, back, side, or a barcode
             close-up. Add as many as you need, then tap Analyse.
+          </Text>
+        </View>
+
+        {/* Multi-Photo Quality Guidance Tip Card */}
+        <View style={styles.tipCard}>
+          <View style={styles.tipHeader}>
+            <Text style={styles.tipIcon}>💡</Text>
+            <Text style={styles.tipTitle}>Pro Tips for 100% Extraction Accuracy</Text>
+          </View>
+          <Text style={styles.tipText}>
+            • Capture labels straight under bright lighting without reflection or glare.
+          </Text>
+          <Text style={styles.tipText}>
+            • Add up to 4 photos: front panel, back panel, and a close-up of small text (MRP, dates, FSSAI).
+          </Text>
+          <Text style={styles.tipText}>
+            • All panels are merged into a single comprehensive statutory audit.
           </Text>
         </View>
 
@@ -314,6 +339,33 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     color: colors.textMuted,
     lineHeight: 18,
+  },
+
+  // Pro tips card
+  tipCard: {
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  tipHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginBottom: 2,
+  },
+  tipIcon: { fontSize: 16 },
+  tipTitle: {
+    fontSize: font.small,
+    fontWeight: "800",
+    color: "#166534",
+  },
+  tipText: {
+    fontSize: 12,
+    color: "#15803D",
+    lineHeight: 17,
   },
 
   // Section label

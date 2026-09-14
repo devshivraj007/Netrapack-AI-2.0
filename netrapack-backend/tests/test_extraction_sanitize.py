@@ -76,3 +76,90 @@ def test_normal_full_extraction_unaffected():
     assert v.mfd_pkd_date == "JAN 2026"
     assert v.country_of_origin == "India"
     assert v.fssai_license_number == "10012345678901"
+
+
+def test_unclear_fields_parsed():
+    v = _extract(mrp=50, unclear_fields=["mrp", "mfd_pkd_date"])
+    assert "mrp" in v.unclear_fields
+    assert "mfd_pkd_date" in v.unclear_fields
+
+
+def test_core_fields_counting():
+    from app.ai.recognizer import _count_core_fields
+    v_empty = _extract()
+    assert _count_core_fields(v_empty) == 0
+
+    v_partial = _extract(mrp=45, net_quantity="100g")
+    assert _count_core_fields(v_partial) == 2
+
+    v_full = _extract(
+        mrp=45, net_quantity="100g", mfd_pkd_date="02/2026",
+        manufacturer_details="Amul Anand", consumer_care_details="care@amul.in",
+        country_of_origin="India"
+    )
+    assert _count_core_fields(v_full) == 6
+
+
+def test_unclear_or_missing_core():
+    from app.ai.recognizer import _get_unclear_or_missing_core
+    v_empty = _extract()
+    assert len(_get_unclear_or_missing_core(v_empty)) == 6
+
+    # Full but date is in unclear_fields
+    v_unclear_date = _extract(
+        mrp=45, net_quantity="100g", mfd_pkd_date="02/2026",
+        manufacturer_details="Amul Anand", consumer_care_details="care@amul.in",
+        country_of_origin="India",
+        unclear_fields=["mfd_pkd_date"]
+    )
+    needed = _get_unclear_or_missing_core(v_unclear_date)
+    assert needed == ["mfd_pkd_date"]
+
+    # Completely clear and declared
+    v_all_clear = _extract(
+        mrp=45, net_quantity="100g", mfd_pkd_date="02/2026",
+        manufacturer_details="Amul Anand", consumer_care_details="care@amul.in",
+        country_of_origin="India"
+    )
+    assert len(_get_unclear_or_missing_core(v_all_clear)) == 0
+
+
+def test_intelligent_merge_clears_unclear():
+    from app.ai.recognizer import _merge_extractions
+    # Primary attempt had unclear mfd_pkd_date
+    primary = _extract(mrp=50.0, mfd_pkd_date="01/26", unclear_fields=["mfd_pkd_date"])
+    # Secondary attempt read mfd_pkd_date clearly!
+    secondary = _extract(mfd_pkd_date="01/2026", net_quantity="200g")
+    
+    merged = _merge_extractions(primary, secondary)
+    # Secondary clear reading replaces primary unclear reading
+    assert merged.mfd_pkd_date == "01/2026"
+    assert "mfd_pkd_date" not in merged.unclear_fields
+    # Preserves primary clear mrp and secondary discovered net_quantity
+    assert merged.mrp == 50.0
+    assert merged.net_quantity == "200g"
+
+
+def test_amul_milk_date_formats():
+    from app.rule_engine.parsers import parse_month_year
+    res_pkd = parse_month_year("PKD 07/AUG/26")
+    assert res_pkd.ok is True
+    assert res_pkd.month == 8
+    assert res_pkd.year == 2026
+
+    res_exp = parse_month_year("Exp: 03/FEB/27")
+    assert res_exp.ok is True
+    assert res_exp.month == 2
+    assert res_exp.year == 2027
+
+
+def test_fssai_barcode_rejection():
+    from app.ai.providers import _clean_fssai
+    # 13-digit EAN barcode starting with 890... must be rejected
+    assert _clean_fssai("8 901262 150088") is None
+    assert _clean_fssai("8901262150088") is None
+    # Real 14-digit FSSAI number must pass
+    assert _clean_fssai("10014022002711") == "10014022002711"
+
+
+

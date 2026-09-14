@@ -70,6 +70,11 @@ _ORIGIN_PHRASE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_TAX_INCL_RE = re.compile(
+    r"(?:incl(?:usive)?\.?\s*(?:of\s*)?(?:all\s*)?taxes?|all\s*taxes)",
+    re.IGNORECASE,
+)
+
 
 # Categories for which the FSSAI (food-specific) check applies. Everything
 # else - and the "general" fallback - runs standard Legal Metrology checks only.
@@ -168,16 +173,18 @@ class RuleEngine:
         if not raw or not raw.strip():
             return (
                 FieldResult(field=F_MRP, status=FieldStatus.VIOLATION, raw_input=raw,
-                            parsed={"prices": []}, notes="No MRP declared."),
+                            parsed={"prices": [], "tax_included_declared": False}, notes="No MRP declared."),
                 Violation(field=F_MRP, rule_citation=CITATION_MRP,
                           description="Maximum Retail Price (MRP) is not declared."),
             )
+
+        tax_incl = bool(_TAX_INCL_RE.search(raw))
 
         if price.is_ambiguous:
             return (
                 FieldResult(
                     field=F_MRP, status=FieldStatus.NEEDS_MANUAL_REVIEW, raw_input=raw,
-                    parsed={"candidate_prices": price.prices},
+                    parsed={"candidate_prices": price.prices, "tax_included_declared": tax_incl},
                     notes="Multiple prices found; cannot auto-resolve which is the MRP.",
                 ),
                 None,
@@ -186,14 +193,21 @@ class RuleEngine:
         if price.single is None:
             return (
                 FieldResult(field=F_MRP, status=FieldStatus.VIOLATION, raw_input=raw,
-                            parsed={"prices": []}, notes="No numeric price found in MRP text."),
+                            parsed={"prices": [], "tax_included_declared": tax_incl}, notes="No numeric price found in MRP text."),
                 Violation(field=F_MRP, rule_citation=CITATION_MRP,
                           description="MRP text present but no valid price value could be read."),
             )
 
+        note = "Single MRP value detected."
+        if tax_incl:
+            note += " Statutory text '(incl. of all taxes)' verified."
+        else:
+            note += " Advisory: Statutory text '(incl. of all taxes)' not explicitly found (Rule 6(1)(e))."
+
         return (
             FieldResult(field=F_MRP, status=FieldStatus.COMPLIANT, raw_input=raw,
-                        parsed={"mrp": price.single}, notes="Single MRP value detected."),
+                        parsed={"mrp": price.single, "tax_included_declared": tax_incl},
+                        notes=note),
             None,
         )
 
@@ -257,7 +271,7 @@ class RuleEngine:
                             parsed={"error": d.error},
                             notes="Date not in accepted Month+Year format."),
                 Violation(field=F_MFG, rule_citation=CITATION_MFG_DATE,
-                          description="Manufacturing date is not a valid month/year declaration."),
+                          description="Month and year of manufacture/pre-packing is not declared."),
             )
 
         # Default to 1st of month for internal math; day is NOT required.
@@ -267,22 +281,17 @@ class RuleEngine:
                 field=F_MFG, status=FieldStatus.COMPLIANT, raw_input=raw,
                 parsed={"month": d.month, "year": d.year,
                         "internal_date": internal.isoformat() if internal else None},
-                notes="Month+Year present (day not required by law).",
+                notes="Month+Year of manufacture/pre-packing verified (Rule 6(1)(c)).",
             ),
             None,
         )
 
     # ------------------------------------------------------------------
-    # Expiry date (optional field)
+    # Expiry date (optional field / Best Before)
     # ------------------------------------------------------------------
     def _check_expiry_date(self, req: ScanRequest):
         raw = req.expiry_date_declaration
         if not raw or not raw.strip():
-            # DECISION (confirmed): missing expiry is NOT a violation by default.
-            # Expiry/best-before is not a universal Legal Metrology requirement;
-            # it is mandatory mainly for specific categories (food via FSSAI,
-            # pharma via Drugs rules). Revisit only when we add category-specific
-            # logic that makes expiry mandatory for those categories.
             return (
                 FieldResult(field=F_EXPIRY, status=FieldStatus.NOT_REQUIRED, raw_input=raw,
                             parsed={}, notes="No expiry declared; not flagged as mandatory today."),
@@ -294,9 +303,19 @@ class RuleEngine:
             return (
                 FieldResult(field=F_EXPIRY, status=FieldStatus.VIOLATION, raw_input=raw,
                             parsed={"error": d.error},
-                            notes="Expiry date not in accepted Month+Year format."),
+                            notes="Expiry/Best-Before date not in recognised format."),
                 Violation(field=F_EXPIRY, rule_citation=CITATION_EXPIRY,
-                          description="Expiry/best-before date is not a valid month/year declaration."),
+                          description="Expiry/best-before date is not a valid declaration."),
+            )
+
+        if d.is_best_before_statement:
+            return (
+                FieldResult(
+                    field=F_EXPIRY, status=FieldStatus.COMPLIANT, raw_input=raw,
+                    parsed={"best_before_duration": d.best_before_duration, "type": "relative_duration"},
+                    notes=f"Statutory Best Before declaration verified ({d.best_before_duration}) under FSSAI & Rule 6(1)(c).",
+                ),
+                None,
             )
 
         # Default expiry to LAST day of month for internal math.
@@ -306,7 +325,7 @@ class RuleEngine:
                 field=F_EXPIRY, status=FieldStatus.COMPLIANT, raw_input=raw,
                 parsed={"month": d.month, "year": d.year,
                         "internal_date": internal.isoformat() if internal else None},
-                notes="Month+Year present (day not required by law).",
+                notes="Calendar expiry Month+Year verified.",
             ),
             None,
         )
