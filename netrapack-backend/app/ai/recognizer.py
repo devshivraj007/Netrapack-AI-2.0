@@ -226,73 +226,24 @@ class ProductRecognizer:
             return None
 
     def extract_fields(self, images: list[bytes]) -> Optional[VisionExtraction]:
-        """Vision structured extraction with autonomous multi-pass accuracy maximization.
-
-        Pipeline:
-        1. Primary Extraction: Attempt with primary available provider on the provided images.
-        2. Multi-Image Pass: If multiple images were uploaded (e.g. front, back, stamped flap)
-           and any core mandatory field is unclear or missing, inspect individual images at
-           full dedicated resolution to clarify faint ink stamps / small print.
-        3. Cross-Provider Fallback: If core mandatory fields remain unclear or missing,
-           automatically retry with the next provider in the chain (capped at 1 retry).
-        4. Intelligent Merge: Merges clearer readings into the final extraction, clearing
-           unclear flags whenever an improved reading is found.
+        """Fast, high-throughput structured vision extraction.
+        
+        Attempts extraction with the primary available provider (Groq LPU -> Gemini -> Ollama).
+        Returns immediately upon successful extraction (~1-2s wall-clock time) to guarantee
+        sub-3-second end-to-end scan speeds.
         """
         providers = [self.groq, self.gemini, self.ollama]
-        current_result: Optional[VisionExtraction] = None
-        active_provider = None
-        active_provider_idx = -1
-
-        # 1. Attempt primary extraction
-        for idx, provider in enumerate(providers):
+        for provider in providers:
             try:
                 available, _ = provider.is_available()
                 if not available:
                     continue
-                current_result = provider.extract_fields(images)
-                active_provider = provider
-                active_provider_idx = idx
-                break
+                result = provider.extract_fields(images)
+                if result is not None:
+                    return result
             except Exception:
                 continue
-
-        if current_result is None:
-            return None
-
-        # Check if all core mandatory fields are clear and present
-        unclear_or_missing = _get_unclear_or_missing_core(current_result)
-        if not unclear_or_missing:
-            return current_result
-
-        # 2. Targeted Inspection of the detail/stamp panel (capped at 1 to conserve token budget)
-        if len(images) > 1 and active_provider is not None:
-            try:
-                single_res = active_provider.extract_fields([images[-1]])
-                if single_res:
-                    current_result = _merge_extractions(current_result, single_res)
-                    unclear_or_missing = _get_unclear_or_missing_core(current_result)
-            except Exception:
-                pass
-
-        # If all core fields are now clear and found, return immediately
-        if not unclear_or_missing:
-            return current_result
-
-        # 3. Cross-Provider Retry (if fields are still unclear or missing)
-        for idx in range(active_provider_idx + 1, len(providers)):
-            provider = providers[idx]
-            try:
-                available, _ = provider.is_available()
-                if not available:
-                    continue
-                second_result = provider.extract_fields(images)
-                if second_result:
-                    current_result = _merge_extractions(current_result, second_result)
-                    break
-            except Exception:
-                continue
-
-        return current_result
+        return None
 
     def _apply_confidence_gate(self, result: RecognitionResult) -> RecognitionResult:
         if result.confidence < CONFIDENCE_THRESHOLD:

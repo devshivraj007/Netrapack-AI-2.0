@@ -371,12 +371,11 @@ class OllamaVisionProvider:
         )
         resp.raise_for_status()
         return (resp.json().get("response") or "").strip()
+_groq_cooldown_until: float = 0.0
 
 
 class GroqVisionProvider:
-    """Level 1: Groq cloud vision with ultra-fast LPU inference.
-    Requires GROQ_API_KEY + internet.
-    """
+    """Level 1: cloud vision model via Groq API (ultra-fast LPU inference)."""
 
     source = AiSource.CLOUD_GROQ
 
@@ -393,10 +392,12 @@ class GroqVisionProvider:
         self.model = model or GROQ_MODEL
         self.fallback_model = fallback_model or GROQ_FALLBACK_MODEL
         self.timeout = timeout if timeout is not None else float(
-            os.environ.get("GROQ_TIMEOUT", 15.0)
+            os.environ.get("GROQ_TIMEOUT", 10.0)
         )
 
     def is_available(self) -> tuple[bool, Optional[str]]:
+        if time.time() < _groq_cooldown_until:
+            return (False, None)
         return (bool(self.api_key), self.model if self.api_key else None)
 
     def recognize(self, image_bytes: bytes) -> RecognitionResult:
@@ -408,6 +409,10 @@ class GroqVisionProvider:
         try:
             return self._call_model(self.model, b64)
         except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                global _groq_cooldown_until
+                _groq_cooldown_until = time.time() + 180.0
+                raise
             status = e.response.status_code
             if status in _GROQ_RETRYABLE_STATUS and self.fallback_model != self.model:
                 return self._call_model(self.fallback_model, b64)
@@ -451,26 +456,21 @@ class GroqVisionProvider:
         optimized = _composite_or_downscale(images)
         b64s = [base64.b64encode(b).decode("ascii") for b in optimized]
 
-        models = [self.model]
-        if self.fallback_model != self.model:
-            models.append(self.fallback_model)
-
-        last_exc: Optional[Exception] = None
-        for model in models:
-            for attempt in range(_GROQ_MAX_RETRIES):
+        try:
+            return self._extract_call(self.model, b64s)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                global _groq_cooldown_until
+                _groq_cooldown_until = time.time() + 180.0
+                raise
+            if self.fallback_model != self.model:
                 try:
-                    return self._extract_call(model, b64s)
-                except httpx.HTTPStatusError as e:
-                    last_exc = e
-                    if e.response.status_code not in _GROQ_RETRYABLE_STATUS:
-                        raise
-                    time.sleep(_GROQ_BACKOFF_SECONDS * (attempt + 1))
-                except httpx.TimeoutException as e:
-                    last_exc = e
-                    time.sleep(_GROQ_BACKOFF_SECONDS)
-        if last_exc:
-            raise last_exc
-        raise RuntimeError("Groq extraction failed with no exception captured")
+                    return self._extract_call(self.fallback_model, b64s)
+                except httpx.HTTPStatusError as e2:
+                    if e2.response.status_code == 429:
+                        _groq_cooldown_until = time.time() + 180.0
+                    raise
+            raise
 
     def _extract_call(self, model: str, image_b64s: list[str]) -> VisionExtraction:
         url = f"{GROQ_BASE_URL}/chat/completions"
@@ -567,7 +567,9 @@ class GeminiVisionProvider:
         )
 
     def is_available(self) -> tuple[bool, Optional[str]]:
-        return (bool(self.api_key), self.model if self.api_key else None)
+        if not self.api_key or self.api_key.startswith("your_") or len(self.api_key) < 15:
+            return (False, None)
+        return (True, self.model)
 
     def recognize(self, image_bytes: bytes) -> RecognitionResult:
         if not self.api_key:

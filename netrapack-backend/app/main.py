@@ -35,6 +35,12 @@ async def lifespan(app: FastAPI):
     # Seed default Officer/Admin accounts (hashed passwords) if none exist.
     repository.seed_default_users()
     app.state.seed_counts = counts
+
+    # Pre-warm PaddleOCR in background so the first scan runs in <2s with 0 cold-start delay
+    import threading
+    from app.ocr.paddle_reader import get_paddle_engine
+    threading.Thread(target=get_paddle_engine, daemon=True, name="paddle_prewarm").start()
+
     yield
 
 

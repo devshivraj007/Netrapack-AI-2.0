@@ -365,9 +365,13 @@ def process_photo_scan_multi(scan_id: str, images: list[bytes],
     from app.ocr.paddle_reader import find_fssai_paddle
     from app.rule_engine.parsers import find_fssai_14
 
+    is_food = (
+        getattr(rec.effective_category, "value", str(rec.effective_category)) == "food_and_beverage"
+        or getattr(rec.category, "value", str(rec.category)) == "food_and_beverage"
+    )
     current_fssai = fields.get("fssai_license_number")
-    if not find_fssai_14(current_fssai):
-        for img_b in images:
+    if is_food and not find_fssai_14(current_fssai):
+        for img_b in reversed(images):
             recovered_fssai = find_fssai_paddle(img_b)
             if recovered_fssai:
                 fields["fssai_license_number"] = recovered_fssai

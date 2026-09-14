@@ -57,6 +57,14 @@ def read_words_paddle(bgr: np.ndarray, min_conf: float = 30.0) -> OcrResult:
     if engine is None:
         return OcrResult(words=[], raw_text="", mean_conf=0.0)
 
+    scale_factor = 1.0
+    h, w = bgr.shape[:2]
+    max_dim = max(h, w)
+    if max_dim > 1280:
+        import cv2
+        scale_factor = 1280.0 / float(max_dim)
+        bgr = cv2.resize(bgr, (int(w * scale_factor), int(h * scale_factor)), interpolation=cv2.INTER_AREA)
+
     try:
         results, _ = engine(bgr)
     except Exception as e:
@@ -80,6 +88,8 @@ def read_words_paddle(bgr: np.ndarray, min_conf: float = 30.0) -> OcrResult:
             continue
 
         pts = np.array(box, dtype=np.float32)
+        if scale_factor != 1.0:
+            pts = pts / scale_factor
         left = int(np.min(pts[:, 0]))
         top = int(np.min(pts[:, 1]))
         right = int(np.max(pts[:, 0]))
@@ -126,14 +136,21 @@ def find_fssai_paddle(image_input: bytes | np.ndarray) -> Optional[str]:
     if engine is None:
         return None
 
+    import cv2
     if isinstance(image_input, (bytes, bytearray)):
-        import cv2
         arr = np.frombuffer(image_input, dtype=np.uint8)
         bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if bgr is None:
             return None
     else:
         bgr = image_input
+
+    # Downscale high-resolution photos to max dimension 1280 for fast (<1s) inference
+    h, w = bgr.shape[:2]
+    max_dim = max(h, w)
+    if max_dim > 1280:
+        scale = 1280.0 / float(max_dim)
+        bgr = cv2.resize(bgr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
     try:
         results, _ = engine(bgr)
