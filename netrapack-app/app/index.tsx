@@ -47,7 +47,7 @@ export default function Welcome() {
         <View style={styles.headerLeft}>
           <Image 
             source={{ uri: EMBLEM_URL }} 
-            style={[styles.headerEmblem, { tintColor: colors.navyDark }]} 
+            style={styles.headerEmblem} 
             resizeMode="contain" 
           />
           <View>
@@ -66,7 +66,7 @@ export default function Welcome() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
         showsVerticalScrollIndicator={false}
       >
-        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+        <Animated.View style={{ opacity: fadeAnim }}>
           
           {/* Hero Banner */}
           <View style={styles.heroCard}>
@@ -244,6 +244,8 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     gap: 20,
+    flexGrow: 1,
+    justifyContent: "center",
   },
 
   /* Hero Banner */
