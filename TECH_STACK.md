@@ -19,7 +19,7 @@ Hackathon judges and enterprise evaluators look for architectural maturity, real
 │                                                                                        │
 │   Extraction (AI / OCR)            Adjudication (Rule Engine)       Enforcement (Legal) │
 │  ┌──────────────────────┐         ┌───────────────────────────┐    ┌─────────────────┐ │
-│  │ PaddleOCR + Gemini   │ ──────▶ │ Deterministic PCR 2011    │ ──▶│ Court-Admissible│ │
+│  │ PaddleOCR + Groq   │ ──────▶ │ Deterministic PCR 2011    │ ──▶│ Court-Admissible│ │
 │  │ Local Edge Precision │         │ Zero-Hallucination Engine │    │ Section 36 PDF  │ │
 │  └──────────────────────┘         └───────────────────────────┘    └─────────────────┘ │
 └────────────────────────────────────────────────────────────────────────────────────────┘
